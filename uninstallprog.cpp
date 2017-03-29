@@ -1,5 +1,6 @@
 #include <Windows.h>
 #include <stdio.h>
+#include <string>
 #include <locale.h>
 
 #define PRG_NAME_LENGTH 1024
@@ -13,7 +14,7 @@ bool IsWindowsBit64();
 
 int main(int argc, char** argv)
 {
-	argv[1] = "카카오톡";
+	argv[1] = "Oracle VM VirtualBox 5.1.18";
 
 	WCHAR ProgramName[1024] = { '\0', };
 	size_t org_len = strlen(argv[1]) + 1;
@@ -22,10 +23,8 @@ int main(int argc, char** argv)
 
 	mbstowcs_s(&convertedChars, ProgramName, org_len, argv[1], _TRUNCATE);
 
-	if (IsWindowsBit64())
-		GetInstalledProgram(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
-	else
-		GetInstalledProgram(L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
+	GetInstalledProgram(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
+	GetInstalledProgram(L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 
 	system("pause");
 }
@@ -96,7 +95,42 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 				if (sQuietUninstallString[0] != '\0')
 					wprintf(L"백그라운드 언인스톨 링크: %s\n", sQuietUninstallString);
 				wprintf(L"=====================================\n");
+
+				wprintf(L"제거 시작\n");
+
+				STARTUPINFO startup_info = { sizeof(STARTUPINFO) };
+
+				PROCESS_INFORMATION proc_info;
+				BOOL proc_ret;
+
+				// SLIENT 언인스톨 가능 시
+				if (sQuietUninstallString[0] != '\0')
+					proc_ret = CreateProcess(NULL, sQuietUninstallString, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
+				else if (sUninstallString[0] != '\0')
+				{
+					// MsiExec 사용 시 SLIENT 언인스톨로 변경
+					if (wcsstr(sUninstallString, L"MsiExec.exe"))
+					{
+						sUninstallString[13] = 'x';
+						wcscat_s(sUninstallString, L" /quiet");
+
+						proc_ret = CreateProcess(NULL, sUninstallString, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
+					}
+					else 
+						proc_ret = CreateProcess(sUninstallString, NULL, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
+				}
+				else return false;
+
+				WaitForSingleObject(proc_info.hProcess, INFINITE);
+
+				if (!proc_ret)
+					return false;
 			}
+
+			sDisplayName[0] = '\0';
+			sUninstallString[0] = '\0';
+			sQuietUninstallString[0] = '\0';
+
 			RegCloseKey(hAppKey);
 		}
 	}

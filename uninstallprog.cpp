@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string>
 #include <locale.h>
+#include <atlstr.h>
 
 #define PRG_NAME_LENGTH 1024
 
@@ -11,6 +12,14 @@ LPFN_ISWOW64PROCESS fnIsWow64Process;
 
 bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName);
 bool IsWindowsBit64();
+
+ULONG ProcIDFromWnd(HWND hwnd);
+HWND GetWinHandle(ULONG pid);
+
+BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM lParam);
+
+// 설치 종료 플래그
+bool unInstallFinished = false;
 
 int main(int argc, char** argv)
 {
@@ -99,6 +108,8 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 				wprintf(L"제거 시작\n");
 
 				STARTUPINFO startup_info = { sizeof(STARTUPINFO) };
+				startup_info.dwFlags = STARTF_USESHOWWINDOW;
+				startup_info.wShowWindow = SW_HIDE;
 
 				PROCESS_INFORMATION proc_info;
 				BOOL proc_ret;
@@ -111,20 +122,50 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 					// MsiExec 사용 시 SLIENT 언인스톨로 변경
 					if (wcsstr(sUninstallString, L"MsiExec.exe"))
 					{
-						sUninstallString[13] = 'x';
-						wcscat_s(sUninstallString, L" /quiet");
+						 sUninstallString[13] = 'x';
+						 wcscat_s(sUninstallString, L" /quiet");
 
 						proc_ret = CreateProcess(NULL, sUninstallString, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
 					}
-					else 
+					else
+					{
+						HWND proc_HWND = NULL;
 						proc_ret = CreateProcess(sUninstallString, NULL, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
+
+						if (proc_ret)
+						{
+							WaitForInputIdle(proc_info.hProcess, INFINITE);
+
+							Sleep(1000);
+
+							HWND UninstallHWND = GetWinHandle(proc_info.dwProcessId);
+
+							if (UninstallHWND != NULL)
+							{
+								// 설치 제거 타이틀 가져오기
+								TCHAR ctrlText[1024];
+								GetWindowText(UninstallHWND, ctrlText, 1024);
+
+								// 타이틀로 끝날때 까지 찾기
+								while (true)
+								{
+									if (!unInstallFinished)
+									{
+										HWND unintstallSub = FindWindow(NULL, ctrlText);
+										EnumChildWindows(unintstallSub, EnumChildProc, 0);
+
+										Sleep(1000);
+									}
+									else break;
+								}
+							}
+
+							printf("제거 완료");
+							
+						}
+					}
 				}
 				else return false;
-
-				WaitForSingleObject(proc_info.hProcess, INFINITE);
-
-				if (!proc_ret)
-					return false;
 			}
 
 			sDisplayName[0] = '\0';
@@ -138,4 +179,58 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 	RegCloseKey(hUninstKey);
 
 	return true;
+}
+
+ULONG ProcIDFromWnd(HWND hwnd) 
+{
+	ULONG idProc;
+	GetWindowThreadProcessId(hwnd, &idProc);
+	return idProc;
+}
+
+HWND GetWinHandle(ULONG pid)  
+{
+	HWND tempHwnd = FindWindow(NULL, NULL);  
+
+	while (tempHwnd != NULL)
+	{
+		if (GetParent(tempHwnd) == NULL) 
+			if (pid == ProcIDFromWnd(tempHwnd))
+				return tempHwnd;
+		tempHwnd = GetWindow(tempHwnd, GW_HWNDNEXT); 
+	}
+	return NULL;
+}
+
+BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM lParam) {
+
+	TCHAR lstFindText[4][10] = { _T("Next"), _T("다음"), _T("Uninstall"), _T("Remove") };
+	TCHAR lstFinishText[2][10] = { _T("Finish"), _T("닫기") };
+	TCHAR ctrlText[512];
+	CString findCtrlText;
+	GetWindowText(hwnd, ctrlText, 512);
+
+	findCtrlText = (LPCTSTR)ctrlText;
+
+	bool find_OK = false;
+	for (int i = 0; i < sizeof(lstFindText) / sizeof(lstFindText[0]); i++)
+	{
+		if (findCtrlText.Find(lstFinishText[i]) >= 0)
+		{
+			find_OK = true;
+			unInstallFinished = true;
+			break;
+		}
+
+		if (findCtrlText.Find(lstFindText[i]) >= 0)
+		{
+			find_OK = true;
+			break;
+		}
+	}
+
+	if (find_OK)
+		SendMessage(hwnd, BM_CLICK, 0, 0);
+
+	return TRUE;
 }

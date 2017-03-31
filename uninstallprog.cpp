@@ -3,27 +3,47 @@
 #include <string>
 #include <locale.h>
 #include <atlstr.h>
+#include <tlhelp32.h>
+#include <list>
 
-#define PRG_NAME_LENGTH 1024
+#pragma warning(disable: 4996)
 
-/* BIT 체크 */
-typedef BOOL(WINAPI *LPFN_ISWOW64PROCESS) (HANDLE, PBOOL);
-LPFN_ISWOW64PROCESS fnIsWow64Process;
-
+// 프로그램 검색 및 삭제
 bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName);
-bool IsWindowsBit64();
 
+// 프로세스 점검을 위한 파일 탐색
+void ExitRelationProcess(TCHAR* folderPath);
+
+// Process handle 가져오기
 ULONG ProcIDFromWnd(HWND hwnd);
 HWND GetWinHandle(ULONG pid);
 
+// Child Window Get
 BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM lParam);
+
+// Main Window Get
+BOOL CALLBACK WorkerProc(HWND hwnd, LPARAM lParam);
 
 // 설치 종료 플래그
 bool unInstallFinished = false;
 
+// 설치 메인 윈도우 텍스트
+TCHAR MainWindowText[1024];
+HWND SubWindowHWND;
+
+std::string ReplaceAll2(std::string &str, const std::string& from, const std::string& to) {
+	size_t start_pos = 0;
+	while ((start_pos = str.find(from, start_pos)) != std::string::npos)
+	{
+		str.replace(start_pos, from.length(), to);
+		start_pos += to.length();
+	}
+	return str;
+}
+
 int main(int argc, char** argv)
 {
-	argv[1] = "Oracle VM VirtualBox 5.1.18";
+	argv[1] = "네이버 웨일";
 
 	WCHAR ProgramName[1024] = { '\0', };
 	size_t org_len = strlen(argv[1]) + 1;
@@ -38,21 +58,6 @@ int main(int argc, char** argv)
 	system("pause");
 }
 
-bool IsWindowsBit64()
-{
-	BOOL bIsWow64 = FALSE;
-
-	fnIsWow64Process = (LPFN_ISWOW64PROCESS)GetProcAddress(GetModuleHandle(TEXT("Kernel32")), "IsWow64Process");
-
-	if (fnIsWow64Process != NULL)
-		if (!fnIsWow64Process(GetCurrentProcess(), &bIsWow64))
-		{
-			//handle error
-		}
-
-	return bIsWow64;
-}
-
 bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 {
 	HKEY hUninstKey = NULL;
@@ -62,12 +67,14 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 	WCHAR sDisplayName[1024] = { '\0', };
 	WCHAR sUninstallString[1024] = { '\0', };
 	WCHAR sQuietUninstallString[1024] = { '\0', };
+	WCHAR sInstallLocation[1024] = { '\0', };
 	long lResult = ERROR_SUCCESS;
 	DWORD dwType = KEY_ALL_ACCESS;
 	DWORD dwBufferSize = 0;
 	DWORD dwDisplayBufSize = 0;
 	DWORD dwsUninstallBufSize = 0;
 	DWORD dwQuietUninstallBufSize = 0;
+	DWORD dwInstallLocation = 0;
 
 	if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, regKeyPath, 0, KEY_READ, &hUninstKey) != ERROR_SUCCESS)
 		return false;
@@ -89,10 +96,12 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 			dwDisplayBufSize = sizeof(sDisplayName);
 			dwsUninstallBufSize = sizeof(sUninstallString);
 			dwQuietUninstallBufSize = sizeof(sQuietUninstallString);
+			dwInstallLocation = sizeof(sInstallLocation);
 
 			RegQueryValueEx(hAppKey, L"DisplayName", NULL, &dwType, (unsigned char*)sDisplayName, &dwDisplayBufSize);
 			RegQueryValueEx(hAppKey, L"UninstallString", NULL, &dwType, (unsigned char*)sUninstallString, &dwsUninstallBufSize);
- 			RegQueryValueEx(hAppKey, L"QuietUninstallString", NULL, &dwType, (unsigned char*)sQuietUninstallString, &dwQuietUninstallBufSize);
+			RegQueryValueEx(hAppKey, L"QuietUninstallString", NULL, &dwType, (unsigned char*)sQuietUninstallString, &dwQuietUninstallBufSize);
+			RegQueryValueEx(hAppKey, L"InstallLocation", NULL, &dwType, (unsigned char*)sInstallLocation, &dwInstallLocation);
 
 			if (sDisplayName[0] != '\0' && wcscmp(sDisplayName, ProgramName) == 0) {
 				wprintf(L"=====================================\n");
@@ -122,37 +131,56 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 					// MsiExec 사용 시 SLIENT 언인스톨로 변경
 					if (wcsstr(sUninstallString, L"MsiExec.exe"))
 					{
-						 sUninstallString[13] = 'x';
-						 wcscat_s(sUninstallString, L" /quiet");
+						sUninstallString[13] = 'x';
+						wcscat_s(sUninstallString, L" /quiet");
 
 						proc_ret = CreateProcess(NULL, sUninstallString, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
+
+						WaitForInputIdle(proc_info.hProcess, INFINITE);
+
+						printf("제거 완료");
 					}
 					else
 					{
-						HWND proc_HWND = NULL;
-						proc_ret = CreateProcess(sUninstallString, NULL, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
-
+						proc_ret = CreateProcess(NULL, sUninstallString, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
+						
 						if (proc_ret)
 						{
 							WaitForInputIdle(proc_info.hProcess, INFINITE);
 
-							Sleep(1000);
+							Sleep(100);
 
-							HWND UninstallHWND = GetWinHandle(proc_info.dwProcessId);
+							//HWND UninstallHWND = GetWinHandle(proc_info.dwProcessId);
+							HWND UninstallHWND = GetForegroundWindow();
 
 							if (UninstallHWND != NULL)
 							{
 								// 설치 제거 타이틀 가져오기
-								TCHAR ctrlText[1024];
-								GetWindowText(UninstallHWND, ctrlText, 1024);
+								GetWindowText(UninstallHWND, MainWindowText, 1024);
+								
+								// 관련 프로세스 종료
+								if (sInstallLocation[0] != '\0')
+									ExitRelationProcess(sInstallLocation);
 
 								// 타이틀로 끝날때 까지 찾기
 								while (true)
 								{
 									if (!unInstallFinished)
 									{
-										HWND unintstallSub = FindWindow(NULL, ctrlText);
-										EnumChildWindows(unintstallSub, EnumChildProc, 0);
+										HWND unintstallSub = FindWindow(NULL, MainWindowText);
+
+										// 이름이 변경되어 못찾을 경우
+										if (unintstallSub == NULL)
+										{
+											EnumWindows(WorkerProc, 0);
+
+											if (SubWindowHWND == NULL)
+												break;
+											else
+												EnumChildWindows(SubWindowHWND, EnumChildProc, 0);
+										}
+										else 
+											EnumChildWindows(unintstallSub, EnumChildProc, 0);
 
 										Sleep(1000);
 									}
@@ -204,33 +232,81 @@ HWND GetWinHandle(ULONG pid)
 
 BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM lParam) {
 
-	TCHAR lstFindText[4][10] = { _T("Next"), _T("다음"), _T("Uninstall"), _T("Remove") };
-	TCHAR lstFinishText[2][10] = { _T("Finish"), _T("닫기") };
+	TCHAR lstFindText[7][10] = { _T("Next"), _T("다음"), _T("Uninstall"), _T("Remove"), _T("예") , _T("제거"), _T("마침") };
+	TCHAR lstFinishText[4][10] = { _T("Finish"), _T("닫기"), _T("제거되었습니다"), _T("마침") };
 	TCHAR ctrlText[512];
 	CString findCtrlText;
 	GetWindowText(hwnd, ctrlText, 512);
 
 	findCtrlText = (LPCTSTR)ctrlText;
-
+	
 	bool find_OK = false;
-	for (int i = 0; i < sizeof(lstFindText) / sizeof(lstFindText[0]); i++)
+	for (int i = 0; i < sizeof(lstFinishText) / sizeof(lstFinishText[0]); i++)
 	{
 		if (findCtrlText.Find(lstFinishText[i]) >= 0)
-		{
-			find_OK = true;
 			unInstallFinished = true;
-			break;
-		}
+	}
 
+	for (int i = 0; i < sizeof(lstFindText) / sizeof(lstFindText[0]); i++)
+	{
 		if (findCtrlText.Find(lstFindText[i]) >= 0)
 		{
-			find_OK = true;
+			SendMessage(hwnd, BM_CLICK, 0, 0);
 			break;
 		}
 	}
 
-	if (find_OK)
-		SendMessage(hwnd, BM_CLICK, 0, 0);
+	return TRUE;
+}
+
+BOOL CALLBACK WorkerProc(HWND hwnd, LPARAM lParam) {
+	static TCHAR buffer[1024];
+	GetWindowText(hwnd, buffer, 1024);
+
+	CString distText = (LPCTSTR)buffer;
+	CString sourceText = (LPCTSTR)MainWindowText;
+
+	if (distText.Find(sourceText) >= 0) {
+		SubWindowHWND = hwnd;
+	}
 
 	return TRUE;
+}
+
+void ExitRelationProcess(TCHAR* folderPath)
+{
+	PathAddBackslash(folderPath);
+	PathAddExtension(folderPath, L"*.exe");
+
+	HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+
+	PROCESSENTRY32 ProcessEntry32;
+	ProcessEntry32.dwSize = sizeof(PROCESSENTRY32);
+
+	WIN32_FIND_DATA find_data;
+	HANDLE file_handle;
+
+	file_handle = FindFirstFile(folderPath, &find_data);
+
+	if (file_handle == INVALID_HANDLE_VALUE)
+		return;
+
+	do {
+		CString process_file;
+		process_file = (LPCTSTR)find_data.cFileName;
+
+		BOOL bProcessFound = Process32First(hSnapshot, &ProcessEntry32);
+		while (bProcessFound)
+		{
+			// 프로세스랑 파일명하고 매칭 되면
+			if (process_file.Compare((LPCTSTR)ProcessEntry32.szExeFile) == 0)
+			{
+				HANDLE open_handle = OpenProcess(PROCESS_TERMINATE, FALSE, ProcessEntry32.th32ProcessID);
+				TerminateProcess(open_handle, ((UINT)-1));
+			}
+			bProcessFound = Process32Next(hSnapshot, &ProcessEntry32);
+		}
+	} while (FindNextFile(file_handle, &find_data));
+
+	CloseHandle(hSnapshot);
 }

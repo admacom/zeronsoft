@@ -43,7 +43,7 @@ std::string ReplaceAll2(std::string &str, const std::string& from, const std::st
 
 int main(int argc, char** argv)
 {
-	argv[1] = "네이버 웨일";
+	argv[1] = "한컴오피스 뷰어";
 
 	WCHAR ProgramName[1024] = { '\0', };
 	size_t org_len = strlen(argv[1]) + 1;
@@ -52,8 +52,8 @@ int main(int argc, char** argv)
 
 	mbstowcs_s(&convertedChars, ProgramName, org_len, argv[1], _TRUNCATE);
 
-	GetInstalledProgram(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 	GetInstalledProgram(L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
+	GetInstalledProgram(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 
 	system("pause");
 }
@@ -123,77 +123,92 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 				PROCESS_INFORMATION proc_info;
 				BOOL proc_ret;
 
-				// SLIENT 언인스톨 가능 시
-				if (sQuietUninstallString[0] != '\0')
-					proc_ret = CreateProcess(NULL, sQuietUninstallString, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
-				else if (sUninstallString[0] != '\0')
+				if (sAppKeyName[0] == '{')
 				{
-					// MsiExec 사용 시 SLIENT 언인스톨로 변경
-					if (wcsstr(sUninstallString, L"MsiExec.exe"))
+					// 응용프로그램 코드값으로 설치 되었을 때
+					// 레지스트리 값을 이용하지 않고 응용프로그램 설치 고유 ID로 MsiExec를 통해 SLIENT 제거 진행
+					WCHAR slientUninstallPath[1024] = L"MsiExec.exe /x";
+					wcscat_s(slientUninstallPath, sAppKeyName);
+					wcscat_s(slientUninstallPath, L" /quiet");
+
+					proc_ret = CreateProcess(NULL, slientUninstallPath, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
+
+					WaitForInputIdle(proc_info.hProcess, INFINITE);
+
+					printf("제거 완료");
+				}
+				else {
+					// SLIENT 언인스톨 가능 시
+					if (sQuietUninstallString[0] != '\0')
+						proc_ret = CreateProcess(NULL, sQuietUninstallString, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
+					else if (sUninstallString[0] != '\0')
 					{
-						sUninstallString[13] = 'x';
-						wcscat_s(sUninstallString, L" /quiet");
-
-						proc_ret = CreateProcess(NULL, sUninstallString, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
-
-						WaitForInputIdle(proc_info.hProcess, INFINITE);
-
-						printf("제거 완료");
-					}
-					else
-					{
-						proc_ret = CreateProcess(NULL, sUninstallString, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
-						
-						if (proc_ret)
+						// MsiExec 사용 시 SLIENT 언인스톨로 변경
+						if (wcsstr(sUninstallString, L"MsiExec.exe"))
 						{
+							sUninstallString[13] = 'x';
+							wcscat_s(sUninstallString, L" /quiet");
+
+							proc_ret = CreateProcess(NULL, sUninstallString, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
+
 							WaitForInputIdle(proc_info.hProcess, INFINITE);
 
-							Sleep(100);
-
-							//HWND UninstallHWND = GetWinHandle(proc_info.dwProcessId);
-							HWND UninstallHWND = GetForegroundWindow();
-
-							if (UninstallHWND != NULL)
-							{
-								// 설치 제거 타이틀 가져오기
-								GetWindowText(UninstallHWND, MainWindowText, 1024);
-								
-								// 관련 프로세스 종료
-								if (sInstallLocation[0] != '\0')
-									ExitRelationProcess(sInstallLocation);
-
-								// 타이틀로 끝날때 까지 찾기
-								while (true)
-								{
-									if (!unInstallFinished)
-									{
-										HWND unintstallSub = FindWindow(NULL, MainWindowText);
-
-										// 이름이 변경되어 못찾을 경우
-										if (unintstallSub == NULL)
-										{
-											EnumWindows(WorkerProc, 0);
-
-											if (SubWindowHWND == NULL)
-												break;
-											else
-												EnumChildWindows(SubWindowHWND, EnumChildProc, 0);
-										}
-										else 
-											EnumChildWindows(unintstallSub, EnumChildProc, 0);
-
-										Sleep(1000);
-									}
-									else break;
-								}
-							}
-
 							printf("제거 완료");
-							
+						}
+						else
+						{
+							proc_ret = CreateProcess(NULL, sUninstallString, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
+
+							if (proc_ret)
+							{
+								WaitForInputIdle(proc_info.hProcess, INFINITE);
+
+								Sleep(100);
+
+								//HWND UninstallHWND = GetWinHandle(proc_info.dwProcessId);
+								HWND UninstallHWND = GetForegroundWindow();
+
+								if (UninstallHWND != NULL)
+								{
+									// 설치 제거 타이틀 가져오기
+									GetWindowText(UninstallHWND, MainWindowText, 1024);
+
+									// 관련 프로세스 종료
+									if (sInstallLocation[0] != '\0')
+										ExitRelationProcess(sInstallLocation);
+
+									// 타이틀로 끝날때 까지 찾기
+									while (true)
+									{
+										if (!unInstallFinished)
+										{
+											HWND unintstallSub = FindWindow(NULL, MainWindowText);
+
+											// 이름이 변경되어 못찾을 경우
+											if (unintstallSub == NULL)
+											{
+												EnumWindows(WorkerProc, 0);
+
+												if (SubWindowHWND == NULL)
+													break;
+												else
+													EnumChildWindows(SubWindowHWND, EnumChildProc, 0);
+											}
+											else
+												EnumChildWindows(unintstallSub, EnumChildProc, 0);
+
+											Sleep(1000);
+										}
+										else break;
+									}
+								}
+
+								printf("제거 완료");
+
+							}
 						}
 					}
 				}
-				else return false;
 			}
 
 			sDisplayName[0] = '\0';
@@ -232,7 +247,7 @@ HWND GetWinHandle(ULONG pid)
 
 BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM lParam) {
 
-	TCHAR lstFindText[7][10] = { _T("Next"), _T("다음"), _T("Uninstall"), _T("Remove"), _T("예") , _T("제거"), _T("마침") };
+	TCHAR lstFindText[8][10] = { _T("Next"), _T("다음"), _T("닫음"), _T("Uninstall"), _T("Remove"), _T("예") , _T("제거"), _T("마침") };
 	TCHAR lstFinishText[4][10] = { _T("Finish"), _T("닫기"), _T("제거되었습니다"), _T("마침") };
 	TCHAR ctrlText[512];
 	CString findCtrlText;

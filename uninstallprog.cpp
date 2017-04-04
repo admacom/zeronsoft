@@ -5,6 +5,7 @@
 #include <atlstr.h>
 #include <tlhelp32.h>
 #include <list>
+#include <thread>
 
 #pragma warning(disable: 4996)
 
@@ -27,23 +28,18 @@ BOOL CALLBACK WorkerProc(HWND hwnd, LPARAM lParam);
 // 설치 종료 플래그
 bool unInstallFinished = false;
 
+// 설치 종료 이후 웹사이트 제거
+bool usingThread = true;
+int check_inteval = 1500;
+void ExitUninstallAfterWeb();
+
 // 설치 메인 윈도우 텍스트
 TCHAR MainWindowText[1024];
 HWND SubWindowHWND;
 
-std::string ReplaceAll2(std::string &str, const std::string& from, const std::string& to) {
-	size_t start_pos = 0;
-	while ((start_pos = str.find(from, start_pos)) != std::string::npos)
-	{
-		str.replace(start_pos, from.length(), to);
-		start_pos += to.length();
-	}
-	return str;
-}
-
 int main(int argc, char** argv)
 {
-	argv[1] = "한컴오피스 뷰어";
+	argv[1] = "CSV Editor Pro";
 
 	WCHAR ProgramName[1024] = { '\0', };
 	size_t org_len = strlen(argv[1]) + 1;
@@ -56,6 +52,7 @@ int main(int argc, char** argv)
 	GetInstalledProgram(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 
 	system("pause");
+	return 0;
 }
 
 bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
@@ -133,14 +130,32 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 
 					proc_ret = CreateProcess(NULL, slientUninstallPath, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
 
+					std::thread bat_block_thread(&ExitUninstallAfterWeb);
 					WaitForInputIdle(proc_info.hProcess, INFINITE);
 
+					// 1.5초간 인터넷 실행 명령어 체크
+					Sleep(check_inteval);
+
+					usingThread = false;
+					bat_block_thread.join();
 					printf("제거 완료");
 				}
 				else {
 					// SLIENT 언인스톨 가능 시
 					if (sQuietUninstallString[0] != '\0')
+					{
 						proc_ret = CreateProcess(NULL, sQuietUninstallString, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
+
+						std::thread bat_block_thread(&ExitUninstallAfterWeb);
+						WaitForInputIdle(proc_info.hProcess, INFINITE);
+
+						// 1.5초간 인터넷 실행 명령어 체크
+						Sleep(check_inteval);
+
+						usingThread = false;
+						bat_block_thread.join();
+						printf("제거 완료");
+					}
 					else if (sUninstallString[0] != '\0')
 					{
 						// MsiExec 사용 시 SLIENT 언인스톨로 변경
@@ -150,24 +165,33 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 							wcscat_s(sUninstallString, L" /quiet");
 
 							proc_ret = CreateProcess(NULL, sUninstallString, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
-
+							
+							std::thread bat_block_thread(&ExitUninstallAfterWeb);
 							WaitForInputIdle(proc_info.hProcess, INFINITE);
 
+							// 1.5초간 인터넷 실행 명령어 체크
+							Sleep(check_inteval);
+
+							usingThread = false;
+							bat_block_thread.join();
 							printf("제거 완료");
 						}
 						else
 						{
+							HWND CHWND = GetForegroundWindow();
 							proc_ret = CreateProcess(NULL, sUninstallString, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
 
 							if (proc_ret)
 							{
+								std::thread bat_block_thread(&ExitUninstallAfterWeb);
 								WaitForInputIdle(proc_info.hProcess, INFINITE);
-
-								Sleep(100);
-
-								//HWND UninstallHWND = GetWinHandle(proc_info.dwProcessId);
+								
 								HWND UninstallHWND = GetForegroundWindow();
-
+								while (CHWND == UninstallHWND)
+								{
+									Sleep(100);
+									UninstallHWND = GetForegroundWindow();
+								}
 								if (UninstallHWND != NULL)
 								{
 									// 설치 제거 타이틀 가져오기
@@ -195,20 +219,35 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 													EnumChildWindows(SubWindowHWND, EnumChildProc, 0);
 											}
 											else
-												EnumChildWindows(unintstallSub, EnumChildProc, 0);
+											{
+												// XAMPP 의 특별한 케이스로 하드코딩
+												HWND TitleHard = FindWindow(NULL, L"Info");
+
+												if (TitleHard != NULL)
+													EnumChildWindows(TitleHard, EnumChildProc, 0);
+												else
+													EnumChildWindows(unintstallSub, EnumChildProc, 0);
+											}
 
 											Sleep(1000);
 										}
 										else break;
 									}
 								}
+								// 1.5초간 인터넷 실행 명령어 체크
+								Sleep(check_inteval);
 
+								usingThread = false;
+								bat_block_thread.join();
 								printf("제거 완료");
 
 							}
 						}
 					}
 				}
+
+				// 삭제 프로세스 완료 후 익스플로러 체크
+				ExitUninstallAfterWeb();
 			}
 
 			sDisplayName[0] = '\0';
@@ -247,13 +286,17 @@ HWND GetWinHandle(ULONG pid)
 
 BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM lParam) {
 
-	TCHAR lstFindText[8][10] = { _T("Next"), _T("다음"), _T("닫음"), _T("Uninstall"), _T("Remove"), _T("예") , _T("제거"), _T("마침") };
+	TCHAR lstFindText[9][10] = { _T("Next"), _T("다음"), _T("닫음"), _T("Uninstall"), _T("Remove"), _T("예") , _T("제거"), _T("마침"), _T("Yes") };
 	TCHAR lstFinishText[4][10] = { _T("Finish"), _T("닫기"), _T("제거되었습니다"), _T("마침") };
 	TCHAR ctrlText[512];
+	TCHAR ctrlClass[512];
 	CString findCtrlText;
+	CString findCtrlClass;
 	GetWindowText(hwnd, ctrlText, 512);
+	GetClassName(hwnd, ctrlClass, 512);
 
 	findCtrlText = (LPCTSTR)ctrlText;
+	findCtrlClass = (LPCTSTR)ctrlClass;
 	
 	bool find_OK = false;
 	for (int i = 0; i < sizeof(lstFinishText) / sizeof(lstFinishText[0]); i++)
@@ -269,6 +312,19 @@ BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM lParam) {
 			SendMessage(hwnd, BM_CLICK, 0, 0);
 			break;
 		}
+		else if (findCtrlClass.Find(L"QWidget") >= 0)
+		{
+			// Caption 으로 찾지못하는 QWidget 버튼의 경우 key press 로 보냄
+			// SetActiveWindow(GetActiveWindow());
+			
+			// YES 버튼
+			PostMessage(hwnd, WM_KEYDOWN, 'y', 1);
+			PostMessage(hwnd, WM_KEYUP, 'y', 1);
+
+			// 엔터 버튼
+			SendMessage(hwnd, WM_KEYDOWN, VK_RETURN, 1);
+			SendMessage(hwnd, WM_KEYUP, VK_RETURN, 1);
+		}
 	}
 
 	return TRUE;
@@ -282,7 +338,7 @@ BOOL CALLBACK WorkerProc(HWND hwnd, LPARAM lParam) {
 	CString sourceText = (LPCTSTR)MainWindowText;
 
 	if (distText.Find(sourceText) >= 0) {
-		SubWindowHWND = hwnd;
+		SubWindowHWND = hwnd; 
 	}
 
 	return TRUE;
@@ -297,7 +353,7 @@ void ExitRelationProcess(TCHAR* folderPath)
 
 	PROCESSENTRY32 ProcessEntry32;
 	ProcessEntry32.dwSize = sizeof(PROCESSENTRY32);
-
+	
 	WIN32_FIND_DATA find_data;
 	HANDLE file_handle;
 
@@ -324,4 +380,29 @@ void ExitRelationProcess(TCHAR* folderPath)
 	} while (FindNextFile(file_handle, &find_data));
 
 	CloseHandle(hSnapshot);
+}
+
+void ExitUninstallAfterWeb()
+{
+	while (usingThread)
+	{
+		HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+
+		PROCESSENTRY32 ProcessEntry32;
+		ProcessEntry32.dwSize = sizeof(PROCESSENTRY32);
+
+		int i = 0;
+
+		Process32First(hSnapshot, &ProcessEntry32);
+
+		while (Process32Next(hSnapshot, &ProcessEntry32) == TRUE)
+		{
+			// 인터넷 프로세스의 경우
+			if (wcsstr(L"cmd.exe", (LPCTSTR)ProcessEntry32.szExeFile))
+			{
+				HANDLE open_handle = OpenProcess(PROCESS_TERMINATE, FALSE, ProcessEntry32.th32ProcessID);
+				TerminateProcess(open_handle, ((UINT)-1));
+			}
+		}
+	}
 }

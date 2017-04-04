@@ -28,6 +28,9 @@ BOOL CALLBACK WorkerProc(HWND hwnd, LPARAM lParam);
 // 설치 종료 플래그
 bool unInstallFinished = false;
 
+// 설치 리부트 플래그
+bool unInstallReboot = false;
+
 // 설치 종료 이후 웹사이트 제거
 bool usingThread = true;
 int check_inteval = 1500;
@@ -39,7 +42,7 @@ HWND SubWindowHWND;
 
 int main(int argc, char** argv)
 {
-	argv[1] = "CSV Editor Pro";
+	argv[1] = "7-Zip 16.04 (x64)";
 
 	WCHAR ProgramName[1024] = { '\0', };
 	size_t org_len = strlen(argv[1]) + 1;
@@ -48,8 +51,8 @@ int main(int argc, char** argv)
 
 	mbstowcs_s(&convertedChars, ProgramName, org_len, argv[1], _TRUNCATE);
 
-	GetInstalledProgram(L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 	GetInstalledProgram(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
+	GetInstalledProgram(L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 
 	system("pause");
 	return 0;
@@ -286,8 +289,10 @@ HWND GetWinHandle(ULONG pid)
 
 BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM lParam) {
 
-	TCHAR lstFindText[9][10] = { _T("Next"), _T("다음"), _T("닫음"), _T("Uninstall"), _T("Remove"), _T("예") , _T("제거"), _T("마침"), _T("Yes") };
+	TCHAR lstFindText[10][10] = { _T("Next"), _T("다음"), _T("닫음"), _T("Uninstall"), _T("Remove"), _T("예") , _T("제거"), _T("마침"), _T("Yes"), _T("Close") };
 	TCHAR lstFinishText[4][10] = { _T("Finish"), _T("닫기"), _T("제거되었습니다"), _T("마침") };
+	TCHAR lstRebootText[2][10] = { _T("Reboot"), _T("Restart") };
+	TCHAR lstRebootFindText[4][10] = { _T("No"), _T("Later"), _T("나중") , _T("다음") };
 	TCHAR ctrlText[512];
 	TCHAR ctrlClass[512];
 	CString findCtrlText;
@@ -305,25 +310,58 @@ BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM lParam) {
 			unInstallFinished = true;
 	}
 
-	for (int i = 0; i < sizeof(lstFindText) / sizeof(lstFindText[0]); i++)
+	for (int i = 0; i < sizeof(lstRebootFindText) / sizeof(lstRebootFindText[0]); i++)
 	{
-		if (findCtrlText.Find(lstFindText[i]) >= 0)
-		{
-			SendMessage(hwnd, BM_CLICK, 0, 0);
-			break;
-		}
-		else if (findCtrlClass.Find(L"QWidget") >= 0)
-		{
-			// Caption 으로 찾지못하는 QWidget 버튼의 경우 key press 로 보냄
-			// SetActiveWindow(GetActiveWindow());
-			
-			// YES 버튼
-			PostMessage(hwnd, WM_KEYDOWN, 'y', 1);
-			PostMessage(hwnd, WM_KEYUP, 'y', 1);
+		if (findCtrlText.Find(lstRebootFindText[i]) >= 0)
+			unInstallReboot = true;
+	}
 
-			// 엔터 버튼
-			SendMessage(hwnd, WM_KEYDOWN, VK_RETURN, 1);
-			SendMessage(hwnd, WM_KEYUP, VK_RETURN, 1);
+	if (!unInstallReboot)
+	{
+		for (int i = 0; i < sizeof(lstFindText) / sizeof(lstFindText[0]); i++)
+		{
+			if (findCtrlText.Find(lstFindText[i]) >= 0)
+			{
+				SendMessage(hwnd, BM_CLICK, 0, 0);
+				break;
+			}
+			else if (findCtrlClass.Find(L"QWidget") >= 0)
+			{
+				// Caption 으로 찾지못하는 QWidget 버튼의 경우 key press 로 보냄
+				// SetActiveWindow(GetActiveWindow());
+
+				// YES 버튼
+				PostMessage(hwnd, WM_KEYDOWN, 'y', 1);
+				PostMessage(hwnd, WM_KEYUP, 'y', 1);
+
+				// 엔터 버튼
+				SendMessage(hwnd, WM_KEYDOWN, VK_RETURN, 1);
+				SendMessage(hwnd, WM_KEYUP, VK_RETURN, 1);
+			}
+		}
+	}
+	else
+	{
+		for (int i = 0; i < sizeof(lstRebootFindText) / sizeof(lstRebootFindText[0]); i++)
+		{
+			if (findCtrlText.Find(lstRebootFindText[i]) >= 0)
+			{
+				SendMessage(hwnd, BM_CLICK, 0, 0);
+				break;
+			}
+			else if (findCtrlClass.Find(L"QWidget") >= 0)
+			{
+				// Caption 으로 찾지못하는 QWidget 버튼의 경우 key press 로 보냄
+				// SetActiveWindow(GetActiveWindow());
+
+				// YES 버튼
+				PostMessage(hwnd, WM_KEYDOWN, 'n', 1);
+				PostMessage(hwnd, WM_KEYUP, 'n', 1);
+
+				// Later 버튼
+				PostMessage(hwnd, WM_KEYDOWN, 'l', 1);
+				PostMessage(hwnd, WM_KEYUP, 'l', 1);
+			}
 		}
 	}
 

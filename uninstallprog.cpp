@@ -347,6 +347,9 @@ BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM lParam) {
 			if (findCtrlText.Find(lstRebootFindText[i]) >= 0)
 			{
 				SendMessage(hwnd, BM_CLICK, 0, 0);
+
+				// init flag
+				unInstallReboot = false;
 				break;
 			}
 			else if (findCtrlClass.Find(L"QWidget") >= 0)
@@ -361,6 +364,9 @@ BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM lParam) {
 				// Later ¹öÆ°
 				PostMessage(hwnd, WM_KEYDOWN, 'l', 1);
 				PostMessage(hwnd, WM_KEYUP, 'l', 1);
+
+				// init flag
+				unInstallReboot = false;
 			}
 		}
 	}

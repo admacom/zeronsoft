@@ -9,6 +9,11 @@
 
 #pragma warning(disable: 4996)
 
+// 32bit, 64bit 확인
+typedef BOOL(WINAPI *LPFN_ISWOW64PROCESS) (HANDLE, PBOOL);
+LPFN_ISWOW64PROCESS fnIsWow64Process;
+BOOL IsWow64();
+
 // 프로그램 검색 및 삭제
 bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName);
 
@@ -42,7 +47,7 @@ HWND SubWindowHWND;
 
 int main(int argc, char** argv)
 {
-	argv[1] = "7-Zip 16.04 (x64)";
+	argv[1] = "CSV Editor Pro";
 
 	WCHAR ProgramName[1024] = { '\0', };
 	size_t org_len = strlen(argv[1]) + 1;
@@ -51,8 +56,8 @@ int main(int argc, char** argv)
 
 	mbstowcs_s(&convertedChars, ProgramName, org_len, argv[1], _TRUNCATE);
 
-	GetInstalledProgram(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 	GetInstalledProgram(L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
+	GetInstalledProgram(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 
 	system("pause");
 	return 0;
@@ -77,8 +82,7 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 	DWORD dwInstallLocation = 0;
 	bool regOpenResult = false;
 
-	// ISWOW64 함수의 비정상 동작으로 인한 레지스트리 경로 문자열로 체크
-	if (regKeyPath[10] == 'W')
+	if (IsWow64())
 		regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, regKeyPath, 0, KEY_READ | KEY_WOW64_64KEY, &hUninstKey) != ERROR_SUCCESS;
 	else
 		regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, regKeyPath, 0, KEY_READ, &hUninstKey) != ERROR_SUCCESS;
@@ -94,7 +98,7 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 		{
 			wsprintf(sSubKey, L"%s\\%s", regKeyPath, sAppKeyName);
 
-			if (regKeyPath[10] == 'W')
+			if (IsWow64())
 				regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, sSubKey, 0, KEY_READ | KEY_WOW64_64KEY, &hAppKey) != ERROR_SUCCESS;
 			else
 				regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, sSubKey, 0, KEY_READ, &hAppKey) != ERROR_SUCCESS;
@@ -462,4 +466,20 @@ void ExitUninstallAfterWeb()
 			}
 		}
 	}
+}
+
+BOOL IsWow64()
+{
+	BOOL bIsWow64 = FALSE;
+	fnIsWow64Process = (LPFN_ISWOW64PROCESS)GetProcAddress(
+		GetModuleHandle(TEXT("kernel32")), "IsWow64Process");
+
+	if (NULL != fnIsWow64Process)
+	{
+		if (!fnIsWow64Process(GetCurrentProcess(), &bIsWow64))
+		{
+			//handle error
+		}
+	}
+	return bIsWow64;
 }

@@ -75,8 +75,15 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 	DWORD dwsUninstallBufSize = 0;
 	DWORD dwQuietUninstallBufSize = 0;
 	DWORD dwInstallLocation = 0;
+	bool regOpenResult = false;
 
-	if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, regKeyPath, 0, KEY_READ, &hUninstKey) != ERROR_SUCCESS)
+	// ISWOW64 함수의 비정상 동작으로 인한 레지스트리 경로 문자열로 체크
+	if (regKeyPath[10] == 'W')
+		regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, regKeyPath, 0, KEY_READ | KEY_WOW64_64KEY, &hUninstKey) != ERROR_SUCCESS;
+	else
+		regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, regKeyPath, 0, KEY_READ, &hUninstKey) != ERROR_SUCCESS;
+
+	if (regOpenResult)
 		return false;
 
 	for (DWORD dwIndex = 0; lResult == ERROR_SUCCESS; dwIndex++)
@@ -86,7 +93,13 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 			&dwBufferSize, NULL, NULL, NULL, NULL)) == ERROR_SUCCESS)
 		{
 			wsprintf(sSubKey, L"%s\\%s", regKeyPath, sAppKeyName);
-			if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, sSubKey, 0, KEY_READ, &hAppKey) != ERROR_SUCCESS)
+
+			if (regKeyPath[10] == 'W')
+				regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, sSubKey, 0, KEY_READ | KEY_WOW64_64KEY, &hAppKey) != ERROR_SUCCESS;
+			else
+				regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, sSubKey, 0, KEY_READ, &hAppKey) != ERROR_SUCCESS;
+
+			if (regOpenResult)
 			{
 				RegCloseKey(hAppKey);
 				RegCloseKey(hUninstKey);

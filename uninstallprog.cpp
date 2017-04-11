@@ -45,9 +45,12 @@ void ExitUninstallAfterWeb();
 TCHAR MainWindowText[1024];
 HWND SubWindowHWND;
 
+// MCAFEE HARDCODING
+void UninstallMcafee(HWND hwnd);
+
 int main(int argc, char** argv)
 {
-	argv[1] = "CSV Editor Pro";
+	argv[1] = "HeidiSQL";
 
 	WCHAR ProgramName[1024] = { '\0', };
 	size_t org_len = strlen(argv[1]) + 1;
@@ -212,10 +215,34 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 									Sleep(100);
 									UninstallHWND = GetForegroundWindow();
 								}
+
 								if (UninstallHWND != NULL)
 								{
+									TCHAR CLSNAME[1024];
 									// 설치 제거 타이틀 가져오기
 									GetWindowText(UninstallHWND, MainWindowText, 1024);
+									GetClassName(UninstallHWND, CLSNAME, 1024);
+
+									// Internet Explorer_Server 인지 체크
+									HWND embWindow = FindWindowEx(UninstallHWND, NULL, L"Shell Embedding", NULL);
+
+									if (embWindow != NULL)
+									{
+										HWND docWindow = FindWindowEx(embWindow, NULL, L"Shell DocObject View", NULL);
+										HWND ieWindow = FindWindowEx(docWindow, NULL, L"Internet Explorer_Server", NULL);
+
+										while (ieWindow == NULL)
+										{
+											ieWindow = FindWindowEx(docWindow, NULL, L"Internet Explorer_Server", NULL);
+										}
+
+										// WEB 기반 제거의 경우
+										if (wcsstr(MainWindowText, L"McAfee  보안센터"))
+										{
+											Sleep(5000);
+											UninstallMcafee(ieWindow);
+										}
+									}
 
 									// 관련 프로세스 종료
 									if (sInstallLocation[0] != '\0')
@@ -306,10 +333,10 @@ HWND GetWinHandle(ULONG pid)
 
 BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM lParam) {
 
-	TCHAR lstFindText[10][10] = { _T("Next"), _T("다음"), _T("닫음"), _T("Uninstall"), _T("Remove"), _T("예") , _T("제거"), _T("마침"), _T("Yes"), _T("Close") };
+	TCHAR lstFindText[13][10] = { _T("Next"), _T("다음"), _T("닫음"), _T("Uninstall"), _T("Remove"), _T("예"), _T("예(Y)") , _T("제거"), _T("마침"), _T("Yes"), _T("Close"), _T("Finish"), _T("세이프") };
 	TCHAR lstFinishText[4][10] = { _T("Finish"), _T("닫기"), _T("제거되었습니다"), _T("마침") };
 	TCHAR lstRebootText[2][10] = { _T("Reboot"), _T("Restart") };
-	TCHAR lstRebootFindText[4][10] = { _T("No"), _T("Later"), _T("나중") , _T("다음") };
+	TCHAR lstRebootFindText[5][10] = { _T("No"), _T("Later"), _T("later"), _T("나중") , _T("다음") };
 	TCHAR ctrlText[512];
 	TCHAR ctrlClass[512];
 	CString findCtrlText;
@@ -367,6 +394,7 @@ BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM lParam) {
 
 				// init flag
 				unInstallReboot = false;
+
 				break;
 			}
 			else if (findCtrlClass.Find(L"QWidget") >= 0)
@@ -482,4 +510,65 @@ BOOL IsWow64()
 		}
 	}
 	return bIsWow64;
+}
+
+void UninstallMcafee(HWND hwnd)
+{
+	// TAB 버튼
+	PostMessage(hwnd, WM_KEYDOWN, VK_TAB, 1);
+	PostMessage(hwnd, WM_KEYUP, VK_TAB, 1);
+
+	// TAB 버튼
+	PostMessage(hwnd, WM_KEYDOWN, VK_TAB, 1);
+	PostMessage(hwnd, WM_KEYUP, VK_TAB, 1);
+
+	// TAB 버튼
+	PostMessage(hwnd, WM_KEYDOWN, VK_TAB, 1);
+	PostMessage(hwnd, WM_KEYUP, VK_TAB, 1);
+
+	// SPACE 버튼
+	PostMessage(hwnd, WM_KEYDOWN, VK_SPACE, 1);
+	PostMessage(hwnd, WM_KEYUP, VK_SPACE, 1);
+
+	// TAB 버튼
+	PostMessage(hwnd, WM_KEYDOWN, VK_TAB, 1);
+	PostMessage(hwnd, WM_KEYUP, VK_TAB, 1);
+
+	// SPACE 버튼
+	PostMessage(hwnd, WM_KEYDOWN, VK_SPACE, 1);
+	PostMessage(hwnd, WM_KEYUP, VK_SPACE, 1);
+
+	// TAB 버튼
+	PostMessage(hwnd, WM_KEYDOWN, VK_TAB, 1);
+	PostMessage(hwnd, WM_KEYUP, VK_TAB, 1);
+
+	// SPACE 버튼
+	PostMessage(hwnd, WM_KEYDOWN, VK_SPACE, 1);
+	PostMessage(hwnd, WM_KEYUP, VK_SPACE, 1);
+
+	// TAB 버튼
+	PostMessage(hwnd, WM_KEYDOWN, VK_TAB, 1);
+	PostMessage(hwnd, WM_KEYUP, VK_TAB, 1);
+
+	// TAB 버튼
+	PostMessage(hwnd, WM_KEYDOWN, VK_TAB, 1);
+	PostMessage(hwnd, WM_KEYUP, VK_TAB, 1);
+
+	// SPACE 버튼
+	PostMessage(hwnd, WM_KEYDOWN, VK_SPACE, 1);
+	PostMessage(hwnd, WM_KEYUP, VK_SPACE, 1);
+
+	// 페이지 전환 딜레이
+	Sleep(3000);
+
+	while (hwnd != NULL)
+	{
+		if (IsWindow(hwnd))
+		{
+			SendMessage(hwnd, WM_MOUSEMOVE, 0, MAKELPARAM(80, 500));
+			SendMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(80, 500));
+			SendMessage(hwnd, WM_LBUTTONUP, MK_LBUTTON, MAKELPARAM(80, 500));
+		}
+		else break;
+	}
 }

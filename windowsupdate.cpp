@@ -94,7 +94,7 @@ void SearchUpdates()
 		USES_CONVERSION;
 		pbstr = OLE2A(updateName);
 		
-		std::cout << i << ", [" << pbstr.c_str() << "] is busy:" << endl;
+		std::cout << i << ", [" << pbstr.c_str() << "]" << endl;
 		logFile << i << ", [" << pbstr.c_str() << "]" << endl;
 	}
 
@@ -180,7 +180,6 @@ void ExecuteUpdates(char* InstallName, char* gbn)
 		updateFilterList->get_Item(i, &updateItem);
 		updateItem->get_Title(&updateName);
 
-		std::cout << updateName << " = " << search_update << endl;
 		if (wcscmp(updateName, search_update) == 0)
 		{
 			updateFilterList->Clear();

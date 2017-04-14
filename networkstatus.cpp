@@ -14,26 +14,45 @@ typedef enum ETH_QUERY_TYPE
 	EQT_BYTES_SENT_PER_SEC = 2,
 	EQT_PACKET_RECV_PER_SEC = 3,
 	EQT_PACKET_SENT_PER_SEC = 4,
-	EQT_COUNT = 5
+	EQT_NET_COUNT = 5
 } ETH_QUERY_TYPE;
 
-typedef struct Eth
+typedef enum ETH_PROCESS_TYPE
+{
+	EQT_IO_READ_BYTES = 0,
+	EQT_IO_WRITE_BYTES = 1,
+	EQT_PROC_COUNT = 2
+} ETH_PROCESS_TYPE;
+
+typedef struct Eth_Net
 {
 	char *m_pszName;
 	HQUERY m_hQuery;
-	HCOUNTER m_hCounter[EQT_COUNT];
+	HCOUNTER m_hCounter[EQT_NET_COUNT];
 	unsigned long m_ulBytesRecvPerSec;
 	unsigned long m_ulBytesSentPerSec;
-} Eth;
+} Eth_Net;
+
+typedef struct Eth_Proc
+{
+	char *m_pszName;
+	HQUERY m_hQuery;
+	HCOUNTER m_hCounter[EQT_PROC_COUNT];
+	unsigned long m_ReadBytesperSec;
+	unsigned long m_WriteBytesperSec;
+} Eth_Proc;
 
 typedef struct EthList
 {
-	int m_nCount;
-	Eth *m_pEth;
+	int m_nCount_Net;
+	int m_nCount_Proc;
+	Eth_Net *m_pEth;
+	Eth_Proc *m_pEth_Proc;
 } EthList;
 
 bool OpenEthList(EthList *ethList, WCHAR *searchNet);
-bool QueryEthUsage(Eth *eth);
+bool QueryEthUsage(Eth_Net *eth);
+bool QueryEthProcUsage(Eth_Proc *eth);
 void CloseEthList(EthList *ethList);
 
 int main()
@@ -103,7 +122,7 @@ int main()
 
 	if (search_data)
 	{
-		Eth *e = &ethList.m_pEth[0];
+		Eth_Net *e = &ethList.m_pEth[0];
 		while (true)
 		{
 			if (!QueryEthUsage(e))
@@ -111,7 +130,9 @@ int main()
 
 			long _sendkbps = (e->m_ulBytesSentPerSec / 1024) * 8;
 			long _receivekbps = (e->m_ulBytesRecvPerSec / 1024) * 8;
-			
+
+			printf("어댑터 명: %s\n", e->m_pszName);
+
 			if (_sendkbps > 1024)
 				printf("보내기 %ldMbps\n", _sendkbps / 1024);
 			else
@@ -127,7 +148,18 @@ int main()
 			else
 				printf("총 %ldKbps\n", _sendkbps + _receivekbps);
 
-			Sleep(1000);
+			printf("===============PROCESS===============\n");
+			for (int i = 0; i < ethList.m_nCount_Proc; i++)
+			{
+				Eth_Proc *e_p = &ethList.m_pEth_Proc[i];
+
+				if (QueryEthProcUsage(e_p))
+				{
+					printf("[%s.exe], 쓰기: %d B/s, 받기: %d B/s\n", e_p->m_pszName, e_p->m_WriteBytesperSec, e_p->m_ReadBytesperSec);
+				}
+			}
+			printf("===============PROCESS===============\n");
+			Sleep(3000);
 		}
 	}
 
@@ -137,12 +169,14 @@ int main()
 
 bool OpenEthList(EthList *ethList, WCHAR *searchNet)
 {
-	int i = 0;
 	bool bErr = false;
 	WCHAR *szCur = NULL;
+	WCHAR *szCur_Proc = NULL;
 	WCHAR *szBuff = NULL;
 	WCHAR *szNet = NULL;
+	WCHAR *szProc = NULL;
 	DWORD dwBuffSize = 0, dwNetSize = 0;
+	DWORD dwProcBuffSize = 0, dwProcSize = 0;
 	WCHAR szCounter[256];
 
 	if (ethList == NULL)
@@ -150,6 +184,7 @@ bool OpenEthList(EthList *ethList, WCHAR *searchNet)
 
 	memset(ethList, 0x00, sizeof(EthList));
 
+	/* NETWORK INTERFACE */ 
 	PdhEnumObjectItems(NULL, NULL, L"Network Interface", szBuff, &dwBuffSize, szNet, &dwNetSize, PERF_DETAIL_WIZARD, 0);
 
 	szBuff = (WCHAR *)malloc(sizeof(WCHAR) * dwBuffSize);
@@ -158,18 +193,19 @@ bool OpenEthList(EthList *ethList, WCHAR *searchNet)
 	PdhEnumObjectItems(NULL, NULL, L"Network Interface", szBuff, &dwBuffSize, szNet, &dwNetSize, PERF_DETAIL_WIZARD, 0);
 
 	szCur = szNet;
-	ethList->m_nCount = 0;
+
+	ethList->m_nCount_Net = 0;
 	while (*szCur != 0)
 	{
 		if (wcsstr(szCur, searchNet))
 		{
-			ethList->m_pEth = (Eth *)malloc(sizeof(Eth));
-			memset(ethList->m_pEth, 0x00, sizeof(Eth));
+			ethList->m_pEth = (Eth_Net *)malloc(sizeof(Eth_Net));
+			memset(ethList->m_pEth, 0x00, sizeof(Eth_Net));
 
-			ethList->m_nCount = 1;
+			ethList->m_nCount_Net = 1;
 
 			USES_CONVERSION;
-			Eth *eth = &ethList->m_pEth[0];
+			Eth_Net *eth = &ethList->m_pEth[0];
 			eth->m_pszName = W2A(szCur);
 
 			if (PdhOpenQuery(NULL, 0, &eth->m_hQuery))
@@ -195,11 +231,70 @@ bool OpenEthList(EthList *ethList, WCHAR *searchNet)
 		szCur += lstrlen(szCur) + 1;
 	}
 
-	if (ethList->m_nCount <= 0)
+	if (ethList->m_nCount_Net <= 0)
 	{
 		free(szBuff);
 		free(szNet);
-		return false;
+	}
+
+
+	/* PROCESS */
+	PdhEnumObjectItems(NULL, NULL, L"Process", szBuff, &dwProcBuffSize, szProc, &dwProcSize, PERF_DETAIL_WIZARD, 0);
+
+	szBuff = (WCHAR *)malloc(sizeof(WCHAR) * dwProcBuffSize);
+	szProc = (WCHAR *)malloc(sizeof(WCHAR) * dwProcSize);
+
+	PdhEnumObjectItems(NULL, NULL, L"Process", szBuff, &dwProcBuffSize, szProc, &dwProcSize, PERF_DETAIL_WIZARD, 0);
+
+	szCur_Proc = szProc;
+	int i = 0;
+
+	while (*szCur_Proc != 0)
+	{
+		szCur_Proc += lstrlen(szCur_Proc) + 1;
+		i++;
+	}
+
+	ethList->m_nCount_Proc = i;
+	ethList->m_pEth_Proc = (Eth_Proc *)malloc(sizeof(Eth_Proc) * i);
+	memset(ethList->m_pEth_Proc, 0x00, sizeof(Eth_Proc) * i);
+
+	i = 0;
+	szCur_Proc = szProc;
+	while (*szCur_Proc != 0)
+	{
+		USES_CONVERSION;
+		Eth_Proc *eth_proc = &ethList->m_pEth_Proc[i];
+		eth_proc->m_pszName = _strdup(W2A(szCur_Proc));
+
+		if (PdhOpenQuery(NULL, 0, &eth_proc->m_hQuery))
+		{
+			bErr = true;
+			break;
+		}
+
+		wsprintf(szCounter, L"\\Process(%s)\\IO Read Bytes/sec", A2W(eth_proc->m_pszName));
+		if (PdhAddCounter(eth_proc->m_hQuery, szCounter, 0, &eth_proc->m_hCounter[EQT_IO_READ_BYTES]))
+		{
+			bErr = true;
+			break;
+		}
+
+		wsprintf(szCounter, L"\\Process(%s)\\IO Write Bytes/sec", A2W(eth_proc->m_pszName));
+		if (PdhAddCounter(eth_proc->m_hQuery, szCounter, 0, &eth_proc->m_hCounter[EQT_IO_WRITE_BYTES]))
+		{
+			bErr = true;
+			break;
+		}
+
+		szCur_Proc += lstrlen(szCur_Proc) + 1;
+		i++;
+	}
+
+	if (ethList->m_nCount_Net <= 0)
+	{
+		free(szBuff);
+		free(szNet);
 	}
 
 	if (szBuff != NULL)
@@ -208,13 +303,16 @@ bool OpenEthList(EthList *ethList, WCHAR *searchNet)
 	if (szNet != NULL)
 		free(szNet);
 
+	if (szProc != NULL)
+		free(szProc);
+
 	if (bErr)
 		return false;
 
 	return true;
 }
 
-bool QueryEthUsage(Eth *eth)
+bool QueryEthUsage(Eth_Net *eth)
 {
 	HCOUNTER hCounter = NULL;
 
@@ -237,17 +335,61 @@ bool QueryEthUsage(Eth *eth)
 	return true;
 }
 
+bool QueryEthProcUsage(Eth_Proc *eth)
+{
+	HCOUNTER hCounter = NULL;
+
+	PDH_FMT_COUNTERVALUE v;
+
+	if (eth == NULL)
+		return false;
+
+	if (eth->m_pszName  == NULL) return false;
+	if (strcmp(eth->m_pszName, "_Total") == 0) return false;
+	
+	if (PdhCollectQueryData(eth->m_hQuery))
+		return false;
+
+	v.longValue = 0;
+	PdhGetFormattedCounterValue(eth->m_hCounter[EQT_IO_READ_BYTES], PDH_FMT_LONG, 0, &v);
+	eth->m_ReadBytesperSec = v.longValue;
+
+	v.longValue = 0;
+	PdhGetFormattedCounterValue(eth->m_hCounter[EQT_IO_WRITE_BYTES], PDH_FMT_LONG, 0, &v);
+	eth->m_WriteBytesperSec = v.longValue;
+
+	return true;
+}
+
 void CloseEthList(EthList *ethList)
 {
 	if (ethList != NULL)
 	{
 		int i = 0, j = 0;
-		for (i = 0; i < ethList->m_nCount; i++)
+		for (i = 0; i < ethList->m_nCount_Net; i++)
 		{
-			Eth *eth = &ethList->m_pEth[i];
+			Eth_Net *eth = &ethList->m_pEth[i];
 			free(eth->m_pszName);
 
-			for (j = 0; j < EQT_COUNT; j++)
+			for (j = 0; j < EQT_NET_COUNT; j++)
+			{
+				if (eth->m_hCounter[j] != NULL)
+				{
+					PdhRemoveCounter(eth->m_hCounter[j]);
+					eth->m_hCounter[j] = NULL;
+				}
+			}
+
+			PdhCloseQuery(eth->m_hQuery);
+			eth->m_hQuery = NULL;
+		}
+
+		for (i = 0; i < ethList->m_nCount_Proc; i++)
+		{
+			Eth_Proc *eth = &ethList->m_pEth_Proc[i];
+			free(eth->m_pszName);
+
+			for (j = 0; j < EQT_NET_COUNT; j++)
 			{
 				if (eth->m_hCounter[j] != NULL)
 				{

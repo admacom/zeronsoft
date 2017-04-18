@@ -3,6 +3,7 @@
 #include <iostream>
 #include <fstream>
 #include <atlconv.h>
+#include <locale.h>
 
 using namespace std;
 
@@ -15,12 +16,23 @@ void SearchUpdates();
 void ExecuteUpdates(char* InstallName, char* gbn);
 void InstallUpdates(IUpdateCollection* updateFilterList);
 void DeleteUpdates(IUpdateCollection* updateFilterList);
+void SetWSUSServerConn();
+void SearchProgramHotfix();
+
+// 32bit, 64bit 확인
+typedef BOOL(WINAPI *LPFN_ISWOW64PROCESS) (HANDLE, PBOOL);
+LPFN_ISWOW64PROCESS fnIsWow64Process_uninst;
+BOOL IsWow64_uninst();
+bool GetInstalledProgram_uninst(WCHAR *regKeyPath);
 
 int main(int argc, char** argv)
 {
+	// WSUS 서버 설정
+	SetWSUSServerConn();
+
 	hr = CoInitialize(NULL); 
 	hr = CoCreateInstance(CLSID_UpdateSession, NULL, CLSCTX_INPROC_SERVER, IID_IUpdateSession, (LPVOID*)&iUpdateSession);
-
+	
 	/*
 		argv[1] = "S";
 		argv[2] = "Windows 10 Version 1607 x64 기반 시스템용 Adobe Flash Player 보안 업데이트(KB4018483)";
@@ -29,7 +41,10 @@ int main(int argc, char** argv)
 	if (strcmp(argv[1], "") == 0) return 0;
 
 	if (strcmp(argv[1], "S") == 0)
+	{
+		SearchProgramHotfix();
 		SearchUpdates();
+	}
 	else
 		ExecuteUpdates(argv[2], argv[1]);
 	
@@ -53,6 +68,7 @@ void SearchUpdates()
 	
 	searcher->put_Online(VARIANT_TRUE);
 	hr = searcher->Search(criteriaInstalled, &resultsInstall);
+
 	hr = searcher->Search(criteriaUnInstalled, &resultsUninstall);
 
 	SysFreeString(criteriaInstalled);
@@ -311,4 +327,142 @@ void DeleteUpdates(IUpdateCollection* updateFilterList)
 	std::wcout << L"업데이트 제거가 완료되었습니다." << endl;
 
 	SysFreeString(unInstallName);
+}
+
+void SetWSUSServerConn()
+{
+	HKEY hKey = NULL;
+	DWORD dwDesc;
+	WCHAR* regKeyPath = L"SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate";
+	WCHAR* regKeyPathAU = L"SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU";
+	WCHAR* regBuffer = { '\0', };
+	bool regOpenResult = false; 
+	WCHAR* strWSUSAddr = L"http://zeronsoft.iptime.org:8530";
+
+	// VALUE DWORD
+	DWORD dwZero = 0;
+	DWORD dwOne = 1;
+	DWORD dwThree = 1;
+	DWORD dwFive = 5;
+	DWORD dwSixteen = 16;
+	
+	RegCreateKeyEx(HKEY_LOCAL_MACHINE, regKeyPath, 0, regBuffer, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &hKey, &dwDesc) == ERROR_SUCCESS;
+	RegSetValueEx(hKey, L"WUServer", 0, REG_SZ, (LPBYTE)strWSUSAddr, wcslen(strWSUSAddr) * 2);
+	RegSetValueEx(hKey, L"WUStatusServer", 0, REG_SZ, (LPBYTE)strWSUSAddr, wcslen(strWSUSAddr) * 2);
+	RegSetValueEx(hKey, L"UpdateServiceUrlAlternate", 0, REG_SZ, (LPBYTE)strWSUSAddr, wcslen(strWSUSAddr) * 2);
+	RegSetValueEx(hKey, L"TargetGroupEnabled", 0, REG_DWORD, (const BYTE*)&dwOne, 4);
+	RegSetValueEx(hKey, L"ElevateNonAdmins", 0, REG_DWORD, (const BYTE*)&dwZero, 4);
+
+	RegCloseKey(hKey);
+
+	RegCreateKeyEx(HKEY_LOCAL_MACHINE, regKeyPathAU, 0, regBuffer, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &hKey, &dwDesc) == ERROR_SUCCESS;
+	RegSetValueEx(hKey, L"AUOptions", 0, REG_DWORD, (const BYTE*)&dwFive, 4);
+	RegSetValueEx(hKey, L"AutoInstallMinorUpdates", 0, REG_DWORD, (const BYTE*)&dwOne, 4);
+	RegSetValueEx(hKey, L"AutomaticMaintenanceEnabled", 0, REG_DWORD, (const BYTE*)&dwOne, 4);
+	RegSetValueEx(hKey, L"DetectionFrequency", 0, REG_DWORD, (const BYTE*)&dwSixteen, 4);
+	RegSetValueEx(hKey, L"DetectionFrequencyEnabled", 0, REG_DWORD, (const BYTE*)&dwOne, 4);
+	RegSetValueEx(hKey, L"NoAutoRebootWithLoggedOnUsers", 0, REG_DWORD, (const BYTE*)&dwZero, 4);
+	RegSetValueEx(hKey, L"NoAutoUpdate", 0, REG_DWORD, (const BYTE*)&dwZero, 4);
+	RegSetValueEx(hKey, L"RebootRelaunchTimeout", 0, REG_DWORD, (const BYTE*)&dwFive, 4);
+	RegSetValueEx(hKey, L"RebootRelaunchTimeoutEnabled", 0, REG_DWORD, (const BYTE*)&dwOne, 4);
+	RegSetValueEx(hKey, L"RebootWarningTimeout", 0, REG_DWORD, (const BYTE*)&dwFive, 4);
+	RegSetValueEx(hKey, L"RebootWarningTimeoutEnabled", 0, REG_DWORD, (const BYTE*)&dwOne, 4);
+	RegSetValueEx(hKey, L"RescheduleWaitTime", 0, REG_DWORD, (const BYTE*)&dwOne, 4);
+	RegSetValueEx(hKey, L"RescheduleWaitTimeEnabled", 0, REG_DWORD, (const BYTE*)&dwOne, 4);
+	RegSetValueEx(hKey, L"ScheduledInstallDay", 0, REG_DWORD, (const BYTE*)&dwZero, 4);
+	RegSetValueEx(hKey, L"ScheduledInstallTime", 0, REG_DWORD, (const BYTE*)&dwThree, 4);
+	RegSetValueEx(hKey, L"UseWUServer", 0, REG_DWORD, (const BYTE*)&dwOne, 4);
+	
+	RegCloseKey(hKey);
+}
+
+void SearchProgramHotfix()
+{
+	setlocale(LC_ALL, "korean");
+	bool regOpenResult = false;
+
+	std::wcout << L"[프로그램 내 설치 HOTFIX]" << endl;
+
+	GetInstalledProgram_uninst(L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall");
+	GetInstalledProgram_uninst(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall");
+
+	std::wcout << L"[프로그램 내 설치 HOTFIX]" << endl;
+}
+
+BOOL IsWow64_uninst()
+{
+	BOOL bIsWow64 = FALSE;
+	fnIsWow64Process_uninst = (LPFN_ISWOW64PROCESS)GetProcAddress(
+		GetModuleHandle(TEXT("kernel32")), "IsWow64Process");
+
+	if (NULL != fnIsWow64Process_uninst)
+	{
+		if (!fnIsWow64Process_uninst(GetCurrentProcess(), &bIsWow64))
+		{
+			//handle error
+		}
+	}
+	return bIsWow64;
+}
+
+
+bool GetInstalledProgram_uninst(WCHAR *regKeyPath)
+{
+	HKEY hUninstKey = NULL;
+	HKEY hAppKey = NULL;
+	WCHAR sAppKeyName[1024] = { '\0', };
+	WCHAR sSubKey[1024] = { '\0', };
+	WCHAR sDisplayName[1024] = { '\0', };
+	long lResult = ERROR_SUCCESS;
+	DWORD dwType = KEY_ALL_ACCESS;
+	DWORD dwBufferSize = 0;
+	DWORD dwDisplayBufSize = 0;
+	bool regOpenResult = false;
+	int _count = 1;
+
+	if (IsWow64_uninst())
+		regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, regKeyPath, 0, KEY_READ | KEY_WOW64_64KEY, &hUninstKey) != ERROR_SUCCESS;
+	else
+		regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, regKeyPath, 0, KEY_READ, &hUninstKey) != ERROR_SUCCESS;
+
+	if (regOpenResult)
+		return false;
+
+	for (DWORD dwIndex = 0; lResult == ERROR_SUCCESS; dwIndex++)
+	{
+		dwBufferSize = sizeof(sAppKeyName);
+		if ((lResult = RegEnumKeyEx(hUninstKey, dwIndex, sAppKeyName,
+			&dwBufferSize, NULL, NULL, NULL, NULL)) == ERROR_SUCCESS)
+		{
+			wsprintf(sSubKey, L"%s\\%s", regKeyPath, sAppKeyName);
+
+			if (IsWow64_uninst())
+				regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, sSubKey, 0, KEY_READ | KEY_WOW64_64KEY, &hAppKey) != ERROR_SUCCESS;
+			else
+				regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, sSubKey, 0, KEY_READ, &hAppKey) != ERROR_SUCCESS;
+
+			if (regOpenResult)
+			{
+				RegCloseKey(hAppKey);
+				RegCloseKey(hUninstKey);
+				return false;
+			}
+
+			dwDisplayBufSize = sizeof(sDisplayName);
+			RegQueryValueEx(hAppKey, L"DisplayName", NULL, &dwType, (unsigned char*)sDisplayName, &dwDisplayBufSize);
+
+			// SELECT TOKEN 
+			if (wcsstr(sDisplayName, L"KB"))
+			{
+				wprintf(L"%d, %s\n", _count, sDisplayName);
+				_count++;
+			}
+
+			RegCloseKey(hAppKey);
+		}
+	}
+
+	RegCloseKey(hUninstKey);
+
+	return true;
 }

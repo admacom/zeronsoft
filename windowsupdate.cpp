@@ -4,6 +4,8 @@
 #include <fstream>
 #include <atlconv.h>
 #include <locale.h>
+#include <list>
+
 
 using namespace std;
 
@@ -340,13 +342,11 @@ void DeleteUpdates(IUpdateCollection* updateFilterList)
 
 void SetWSUSServerConn()
 {
-	setlocale(LC_ALL, "korean");
 	HKEY hKey = NULL;
 	HKEY hKeyT = NULL;
 	DWORD dwDesc;
 	WCHAR* regKeyPath = L"SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate";
-	WCHAR regKeyPathAU[52] = L"SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\A";
-	regKeyPathAU[51] = L'U';
+	WCHAR regKeyPathAU[53] = L"SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\A"; 	regKeyPathAU[51] = 'U';
 	WCHAR* regKeyPathCurrent = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate";
 	WCHAR* regBuffer = { '\0', };
 	bool regOpenResult = false; 
@@ -369,6 +369,7 @@ void SetWSUSServerConn()
 
 	PROCESS_INFORMATION proc_info;
 
+	setlocale(LC_ALL, "korean");
 	CreateProcess(L"cmd.exe", L"gpupdate /force", NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
 	WaitForInputIdle(proc_info.hProcess, INFINITE);
 

@@ -155,7 +155,9 @@ int main()
 
 				if (QueryEthProcUsage(e_p))
 				{
-					printf("[%s.exe], 쓰기: %d B/s, 읽기: %d B/s\n", e_p->m_pszName, e_p->m_WriteBytesperSec, e_p->m_ReadBytesperSec);
+					// 0 이상인것만 출력
+					if (e_p->m_ReadBytesperSec + e_p->m_WriteBytesperSec > 0)
+						printf("[%s.exe], 쓰기: %d B/s, 받기: %d B/s\n", e_p->m_pszName, e_p->m_WriteBytesperSec, e_p->m_ReadBytesperSec);
 				}
 			}
 			printf("===============PROCESS===============\n");
@@ -165,6 +167,8 @@ int main()
 
 	CloseEthList(&ethList);
 	_CrtDumpMemoryLeaks();
+
+	return 0;
 }
 
 bool OpenEthList(EthList *ethList, WCHAR *searchNet)

@@ -126,47 +126,63 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 			RegQueryValueEx(hAppKey, L"QuietUninstallString", NULL, &dwType, (unsigned char*)sQuietUninstallString, &dwQuietUninstallBufSize);
 			RegQueryValueEx(hAppKey, L"InstallLocation", NULL, &dwType, (unsigned char*)sInstallLocation, &dwInstallLocation);
 
-			if (wcscmp(L"S", ProgramName) == 0)
-			{
-				// SELECT TOKEN 
-				if (wcsstr(sDisplayName, L"KB"))
+			if (sDisplayName[0] != '\0' && wcscmp(sDisplayName, ProgramName) == 0) {
+				wprintf(L"=====================================\n");
+				wprintf(L"프로그램 명: %s\n", sDisplayName);
+
+				wprintf(L"레지스트리 경로: %s\\%s\n", regKeyPath, sAppKeyName);
+
+				if (sUninstallString[0] != '\0')
+					wprintf(L"언인스톨 링크: %s\n", sUninstallString);
+
+				if (sQuietUninstallString[0] != '\0')
+					wprintf(L"백그라운드 언인스톨 링크: %s\n", sQuietUninstallString);
+				wprintf(L"=====================================\n");
+
+				wprintf(L"제거 시작\n");
+
+				STARTUPINFO startup_info = { sizeof(STARTUPINFO) };
+				startup_info.dwFlags = STARTF_USESHOWWINDOW;
+				startup_info.wShowWindow = SW_HIDE;
+
+				PROCESS_INFORMATION proc_info;
+				BOOL proc_ret;
+
+				if (sAppKeyName[0] == '{' && sQuietUninstallString[0] == '\0')
 				{
-					wprintf(L"%s\n", sDisplayName);
-				}
-			}
-			else {
-				if (sDisplayName[0] != '\0' && wcscmp(sDisplayName, ProgramName) == 0) {
-					wprintf(L"=====================================\n");
-					wprintf(L"프로그램 명: %s\n", sDisplayName);
+					// 응용프로그램 코드값으로 설치 되었을 때
+					// 레지스트리 값을 이용하지 않고 응용프로그램 설치 고유 ID로 MsiExec를 통해 SLIENT 제거 진행
+					WCHAR slientUninstallPath[1024] = L"MsiExec.exe /x";
+					wcscat_s(slientUninstallPath, sAppKeyName);
+					wcscat_s(slientUninstallPath, L" /quiet");
 
-					wprintf(L"레지스트리 경로: %s\\%s\n", regKeyPath, sAppKeyName);
+					proc_ret = CreateProcess(NULL, slientUninstallPath, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
+					wprintf(L"백그라운드 언인스톨 링크: %s\n", slientUninstallPath);
 
-					if (sUninstallString[0] != '\0')
-						wprintf(L"언인스톨 링크: %s\n", sUninstallString);
+					std::thread bat_block_thread(&ExitUninstallAfterWeb);
+					WaitForInputIdle(proc_info.hProcess, INFINITE);
 
-					if (sQuietUninstallString[0] != '\0')
-						wprintf(L"백그라운드 언인스톨 링크: %s\n", sQuietUninstallString);
-					wprintf(L"=====================================\n");
+					// 1.5초간 인터넷 실행 명령어 체크
+					Sleep(check_inteval);
 
-					wprintf(L"제거 시작\n");
+					usingThread = false;
+					bat_block_thread.join();
 
-					STARTUPINFO startup_info = { sizeof(STARTUPINFO) };
-					startup_info.dwFlags = STARTF_USESHOWWINDOW;
-					startup_info.wShowWindow = SW_HIDE;
-
-					PROCESS_INFORMATION proc_info;
-					BOOL proc_ret;
-
-					if (sAppKeyName[0] == '{' && sQuietUninstallString[0] == '\0')
+					if (!PathFileExists(sUninstallString))
+						printf("제거 완료");
+					else
 					{
-						// 응용프로그램 코드값으로 설치 되었을 때
-						// 레지스트리 값을 이용하지 않고 응용프로그램 설치 고유 ID로 MsiExec를 통해 SLIENT 제거 진행
-						WCHAR slientUninstallPath[1024] = L"MsiExec.exe /x";
-						wcscat_s(slientUninstallPath, sAppKeyName);
-						wcscat_s(slientUninstallPath, L" /quiet");
-
-						proc_ret = CreateProcess(NULL, slientUninstallPath, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
-						wprintf(L"백그라운드 언인스톨 링크: %s\n", slientUninstallPath);
+						// 정상 제거 실패 시 일반 삭제로 변경
+						printf("제거 실패 [일반 제거로 변경]");
+						goto NormalUninstall;
+					}
+				}
+				else {
+				NormalUninstall:
+					// SLIENT 언인스톨 가능 시
+					if (sQuietUninstallString[0] != '\0')
+					{
+						proc_ret = CreateProcess(NULL, sQuietUninstallString, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
 
 						std::thread bat_block_thread(&ExitUninstallAfterWeb);
 						WaitForInputIdle(proc_info.hProcess, INFINITE);
@@ -180,18 +196,17 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 						if (!PathFileExists(sUninstallString))
 							printf("제거 완료");
 						else
-						{
-							// 정상 제거 실패 시 일반 삭제로 변경
-							printf("제거 실패 [일반 제거로 변경]");
-							goto NormalUninstall;
-						}
+							printf("제거 실패");
 					}
-					else {
-						NormalUninstall:
-						// SLIENT 언인스톨 가능 시
-						if (sQuietUninstallString[0] != '\0')
+					else if (sUninstallString[0] != '\0')
+					{
+						// MsiExec 사용 시 SLIENT 언인스톨로 변경
+						if (wcsstr(sUninstallString, L"MsiExec.exe"))
 						{
-							proc_ret = CreateProcess(NULL, sQuietUninstallString, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
+							sUninstallString[13] = 'x';
+							wcscat_s(sUninstallString, L" /quiet");
+
+							proc_ret = CreateProcess(NULL, sUninstallString, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
 
 							std::thread bat_block_thread(&ExitUninstallAfterWeb);
 							WaitForInputIdle(proc_info.hProcess, INFINITE);
@@ -207,19 +222,88 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 							else
 								printf("제거 실패");
 						}
-						else if (sUninstallString[0] != '\0')
+						else
 						{
-							// MsiExec 사용 시 SLIENT 언인스톨로 변경
-							if (wcsstr(sUninstallString, L"MsiExec.exe"))
+							HWND CHWND = GetForegroundWindow();
+							proc_ret = CreateProcess(NULL, sUninstallString, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
+
+							if (proc_ret)
 							{
-								sUninstallString[13] = 'x';
-								wcscat_s(sUninstallString, L" /quiet");
-
-								proc_ret = CreateProcess(NULL, sUninstallString, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
-
-								std::thread bat_block_thread(&ExitUninstallAfterWeb);
 								WaitForInputIdle(proc_info.hProcess, INFINITE);
+								std::thread bat_block_thread(&ExitUninstallAfterWeb);
 
+								HWND UninstallHWND = GetForegroundWindow();
+								while (CHWND == UninstallHWND)
+								{
+									Sleep(100);
+									UninstallHWND = GetForegroundWindow();
+								}
+
+								if (UninstallHWND != NULL)
+								{
+									TCHAR CLSNAME[1024];
+									// 설치 제거 타이틀 가져오기
+									GetWindowText(UninstallHWND, MainWindowText, 1024);
+									GetClassName(UninstallHWND, CLSNAME, 1024);
+
+									// Internet Explorer_Server 인지 체크
+									HWND embWindow = FindWindowEx(UninstallHWND, NULL, L"Shell Embedding", NULL);
+
+									if (embWindow != NULL)
+									{
+										HWND docWindow = FindWindowEx(embWindow, NULL, L"Shell DocObject View", NULL);
+										HWND ieWindow = FindWindowEx(docWindow, NULL, L"Internet Explorer_Server", NULL);
+
+										while (ieWindow == NULL)
+										{
+											ieWindow = FindWindowEx(docWindow, NULL, L"Internet Explorer_Server", NULL);
+										}
+
+										// WEB 기반 제거의 경우
+										if (wcsstr(MainWindowText, L"McAfee  보안센터"))
+										{
+											Sleep(5000);
+											UninstallMcafee(ieWindow);
+										}
+									}
+
+									// 관련 프로세스 종료
+									if (sInstallLocation[0] != '\0')
+										ExitRelationProcess(sInstallLocation);
+
+									// 타이틀로 끝날때 까지 찾기
+									while (true)
+									{
+										if (!unInstallFinished)
+										{
+											HWND unintstallSub = FindWindow(NULL, MainWindowText);
+
+											// 이름이 변경되어 못찾을 경우
+											if (unintstallSub == NULL)
+											{
+												EnumWindows(WorkerProc, 0);
+
+												if (SubWindowHWND == NULL)
+													break;
+												else
+													EnumChildWindows(SubWindowHWND, EnumChildProc, 0);
+											}
+											else
+											{
+												// XAMPP 의 특별한 케이스로 하드코딩
+												HWND TitleHard = FindWindow(NULL, L"Info");
+
+												if (TitleHard != NULL)
+													EnumChildWindows(TitleHard, EnumChildProc, 0);
+												else
+													EnumChildWindows(unintstallSub, EnumChildProc, 0);
+											}
+
+											Sleep(1000);
+										}
+										else break;
+									}
+								}
 								// 1.5초간 인터넷 실행 명령어 체크
 								Sleep(check_inteval);
 
@@ -231,106 +315,12 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 								else
 									printf("제거 실패");
 							}
-							else
-							{
-								HWND CHWND = GetForegroundWindow();
-								proc_ret = CreateProcess(NULL, sUninstallString, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
-
-								if (proc_ret)
-								{
-									WaitForInputIdle(proc_info.hProcess, INFINITE);
-									std::thread bat_block_thread(&ExitUninstallAfterWeb);
-
-									HWND UninstallHWND = GetForegroundWindow();
-									while (CHWND == UninstallHWND)
-									{
-										Sleep(100);
-										UninstallHWND = GetForegroundWindow();
-									}
-
-									if (UninstallHWND != NULL)
-									{
-										TCHAR CLSNAME[1024];
-										// 설치 제거 타이틀 가져오기
-										GetWindowText(UninstallHWND, MainWindowText, 1024);
-										GetClassName(UninstallHWND, CLSNAME, 1024);
-
-										// Internet Explorer_Server 인지 체크
-										HWND embWindow = FindWindowEx(UninstallHWND, NULL, L"Shell Embedding", NULL);
-
-										if (embWindow != NULL)
-										{
-											HWND docWindow = FindWindowEx(embWindow, NULL, L"Shell DocObject View", NULL);
-											HWND ieWindow = FindWindowEx(docWindow, NULL, L"Internet Explorer_Server", NULL);
-
-											while (ieWindow == NULL)
-											{
-												ieWindow = FindWindowEx(docWindow, NULL, L"Internet Explorer_Server", NULL);
-											}
-
-											// WEB 기반 제거의 경우
-											if (wcsstr(MainWindowText, L"McAfee  보안센터"))
-											{
-												Sleep(5000);
-												UninstallMcafee(ieWindow);
-											}
-										}
-
-										// 관련 프로세스 종료
-										if (sInstallLocation[0] != '\0')
-											ExitRelationProcess(sInstallLocation);
-
-										// 타이틀로 끝날때 까지 찾기
-										while (true)
-										{
-											if (!unInstallFinished)
-											{
-												HWND unintstallSub = FindWindow(NULL, MainWindowText);
-
-												// 이름이 변경되어 못찾을 경우
-												if (unintstallSub == NULL)
-												{
-													EnumWindows(WorkerProc, 0);
-
-													if (SubWindowHWND == NULL)
-														break;
-													else
-														EnumChildWindows(SubWindowHWND, EnumChildProc, 0);
-												}
-												else
-												{
-													// XAMPP 의 특별한 케이스로 하드코딩
-													HWND TitleHard = FindWindow(NULL, L"Info");
-
-													if (TitleHard != NULL)
-														EnumChildWindows(TitleHard, EnumChildProc, 0);
-													else
-														EnumChildWindows(unintstallSub, EnumChildProc, 0);
-												}
-
-												Sleep(1000);
-											}
-											else break;
-										}
-									}
-									// 1.5초간 인터넷 실행 명령어 체크
-									Sleep(check_inteval);
-
-									usingThread = false;
-									bat_block_thread.join();
-
-									if (!PathFileExists(sUninstallString))
-										printf("제거 완료");
-									else
-										printf("제거 실패");
-								}
-							}
 						}
 					}
-
-					// 삭제 프로세스 완료 후 익스플로러 체크
-					ExitUninstallAfterWeb();
 				}
+
+				// 삭제 프로세스 완료 후 익스플로러 체크
+				ExitUninstallAfterWeb();
 			}
 			sDisplayName[0] = '\0';
 			sUninstallString[0] = '\0';

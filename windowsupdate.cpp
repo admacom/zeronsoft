@@ -33,10 +33,10 @@ int main(int argc, char** argv)
 	hr = CoInitialize(NULL); 
 	hr = CoCreateInstance(CLSID_UpdateSession, NULL, CLSCTX_INPROC_SERVER, IID_IUpdateSession, (LPVOID*)&iUpdateSession);
 	
-	/*
+	
 		argv[1] = "S";
 		argv[2] = "Windows 10 Version 1607 x64 기반 시스템용 Adobe Flash Player 보안 업데이트(KB4018483)";
-	*/
+	
 
 	if (strcmp(argv[1], "") == 0) return 0;
 
@@ -55,6 +55,8 @@ int main(int argc, char** argv)
 
 void SearchUpdates()
 {
+	std::locale::global(std::locale("C"));
+
 	IUpdateSearcher* searcher;
 	ISearchResult* resultsInstall;
 	ISearchResult* resultsUninstall;
@@ -63,7 +65,7 @@ void SearchUpdates()
 
 	hr = iUpdateSession->CreateUpdateSearcher(&searcher);
 	
-	std::cout << "업데이트를 찾고 있습니다 ..." << endl;
+	std::cout << "업데이트를 찾고 있습니다 ..." << endl << flush;
 	logFile << "업데이트를 찾고 있습니다 ..." << endl;
 	
 	searcher->put_Online(VARIANT_TRUE);
@@ -76,7 +78,7 @@ void SearchUpdates()
 
 	switch (hr) {
 	case S_OK:
-		std::cout << "[조회된 데이터]" << endl;
+		std::cout << "[조회된 데이터]" << endl << flush;
 		logFile << "[조회된 데이터]" << endl;
 		break;
 	case WU_E_LEGACYSERVER:
@@ -94,6 +96,13 @@ void SearchUpdates()
 	BSTR updateName = L"";
 	LONG updateSize;
 
+	if (resultsInstall == NULL)
+	{
+		std::cout.flush();
+		std::cout << "[WSUS 서버 접속 실패 (종료)]" << endl; 
+		logFile << "[WSUS 서버 접속 실패 (종료)]" << endl;
+		return;
+	}
 	/* Installed Items */
 	resultsInstall->get_Updates(&updateList);
 	updateList->get_Count(&updateSize);
@@ -331,10 +340,14 @@ void DeleteUpdates(IUpdateCollection* updateFilterList)
 
 void SetWSUSServerConn()
 {
+	setlocale(LC_ALL, "korean");
 	HKEY hKey = NULL;
+	HKEY hKeyT = NULL;
 	DWORD dwDesc;
 	WCHAR* regKeyPath = L"SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate";
-	WCHAR* regKeyPathAU = L"SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU";
+	WCHAR regKeyPathAU[52] = L"SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\A";
+	regKeyPathAU[51] = L'U';
+	WCHAR* regKeyPathCurrent = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate";
 	WCHAR* regBuffer = { '\0', };
 	bool regOpenResult = false; 
 	WCHAR* strWSUSAddr = L"http://zeronsoft.iptime.org:8530";
@@ -345,8 +358,36 @@ void SetWSUSServerConn()
 	DWORD dwThree = 1;
 	DWORD dwFive = 5;
 	DWORD dwSixteen = 16;
+
+	SC_HANDLE svcManager = NULL;
+	SC_HANDLE svcMain = NULL;
+	SERVICE_STATUS svcStatus;
 	
-	RegCreateKeyEx(HKEY_LOCAL_MACHINE, regKeyPath, 0, regBuffer, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &hKey, &dwDesc) == ERROR_SUCCESS;
+	STARTUPINFO startup_info = { sizeof(STARTUPINFO) };
+	startup_info.dwFlags = STARTF_USESHOWWINDOW;
+	startup_info.wShowWindow = SW_HIDE;
+
+	PROCESS_INFORMATION proc_info;
+
+	CreateProcess(L"cmd.exe", L"gpupdate /force", NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
+	WaitForInputIdle(proc_info.hProcess, INFINITE);
+
+	svcManager = OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+	svcMain = OpenService(svcManager, L"wuauserv", SERVICE_ALL_ACCESS);
+	QueryServiceStatus(svcMain, &svcStatus);
+
+	// 종료
+	if (svcStatus.dwCurrentState != SERVICE_STOPPED)
+	{
+		ControlService(svcMain, SERVICE_CONTROL_STOP, &svcStatus);
+		while (svcStatus.dwCurrentState != SERVICE_STOPPED)
+		{
+			Sleep(500);
+			QueryServiceStatus(svcMain, &svcStatus);
+		}
+	}
+	
+	RegCreateKeyEx(HKEY_LOCAL_MACHINE, regKeyPath, 0, regBuffer, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &hKey, &dwDesc);
 	RegSetValueEx(hKey, L"WUServer", 0, REG_SZ, (LPBYTE)strWSUSAddr, wcslen(strWSUSAddr) * 2);
 	RegSetValueEx(hKey, L"WUStatusServer", 0, REG_SZ, (LPBYTE)strWSUSAddr, wcslen(strWSUSAddr) * 2);
 	RegSetValueEx(hKey, L"UpdateServiceUrlAlternate", 0, REG_SZ, (LPBYTE)strWSUSAddr, wcslen(strWSUSAddr) * 2);
@@ -355,7 +396,7 @@ void SetWSUSServerConn()
 
 	RegCloseKey(hKey);
 
-	RegCreateKeyEx(HKEY_LOCAL_MACHINE, regKeyPathAU, 0, regBuffer, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &hKey, &dwDesc) == ERROR_SUCCESS;
+	RegCreateKeyEx(HKEY_LOCAL_MACHINE, regKeyPathAU, 0, regBuffer, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &hKey, &dwDesc);
 	RegSetValueEx(hKey, L"AUOptions", 0, REG_DWORD, (const BYTE*)&dwFive, 4);
 	RegSetValueEx(hKey, L"AutoInstallMinorUpdates", 0, REG_DWORD, (const BYTE*)&dwOne, 4);
 	RegSetValueEx(hKey, L"AutomaticMaintenanceEnabled", 0, REG_DWORD, (const BYTE*)&dwOne, 4);
@@ -374,11 +415,38 @@ void SetWSUSServerConn()
 	RegSetValueEx(hKey, L"UseWUServer", 0, REG_DWORD, (const BYTE*)&dwOne, 4);
 	
 	RegCloseKey(hKey);
+
+	if (IsWow64_uninst())
+		RegOpenKeyEx(HKEY_LOCAL_MACHINE, regKeyPathCurrent, 0, KEY_READ | KEY_WOW64_64KEY | KEY_SET_VALUE, &hKey);
+	else
+		RegOpenKeyEx(HKEY_LOCAL_MACHINE, regKeyPathCurrent, 0, KEY_READ | KEY_SET_VALUE, &hKey);
+
+	RegDeleteValue(hKey, L"AccountDomainSid");
+	RegDeleteValue(hKey, L"PingID");
+	RegDeleteValue(hKey, L"SusClientId");
+	
+	RegCloseKey(hKey);
+
+	// 시작
+	if (svcStatus.dwCurrentState == SERVICE_STOPPED)
+	{
+		StartService(svcMain, 0, NULL);
+		while (svcStatus.dwCurrentState == SERVICE_STOPPED)
+		{
+			Sleep(500);
+			QueryServiceStatus(svcMain, &svcStatus);
+		}
+	}
+
+	CloseServiceHandle(svcManager);
+	CloseServiceHandle(svcMain);
+
+	CreateProcess(L"cmd.exe", L"wuauclt /resetauthorization /detectnow", NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
+	WaitForInputIdle(proc_info.hProcess, INFINITE);
 }
 
 void SearchProgramHotfix()
 {
-	setlocale(LC_ALL, "korean");
 	bool regOpenResult = false;
 
 	std::wcout << L"[프로그램 내 설치 HOTFIX]" << endl;
@@ -463,6 +531,6 @@ bool GetInstalledProgram_uninst(WCHAR *regKeyPath)
 	}
 
 	RegCloseKey(hUninstKey);
-
+	
 	return true;
 }

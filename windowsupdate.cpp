@@ -361,7 +361,7 @@ void SetWSUSServerConn()
 
 	SC_HANDLE svcManager = NULL;
 	SC_HANDLE svcMain = NULL;
-	SERVICE_STATUS svcStatus;
+	SERVICE_STATUS svcStatus {};
 	
 	STARTUPINFO startup_info = { sizeof(STARTUPINFO) };
 	startup_info.dwFlags = STARTF_USESHOWWINDOW;
@@ -378,7 +378,7 @@ void SetWSUSServerConn()
 	QueryServiceStatus(svcMain, &svcStatus);
 
 	// 종료
-	if (svcStatus.dwCurrentState != SERVICE_STOPPED)
+	if (svcStatus.dwCurrentState && svcStatus.dwCurrentState != SERVICE_STOPPED)
 	{
 		ControlService(svcMain, SERVICE_CONTROL_STOP, &svcStatus);
 		while (svcStatus.dwCurrentState != SERVICE_STOPPED)
@@ -387,7 +387,7 @@ void SetWSUSServerConn()
 			QueryServiceStatus(svcMain, &svcStatus);
 		}
 	}
-	
+
 	RegCreateKeyEx(HKEY_LOCAL_MACHINE, regKeyPath, 0, regBuffer, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &hKey, &dwDesc);
 	RegSetValueEx(hKey, L"WUServer", 0, REG_SZ, (LPBYTE)strWSUSAddr, wcslen(strWSUSAddr) * 2);
 	RegSetValueEx(hKey, L"WUStatusServer", 0, REG_SZ, (LPBYTE)strWSUSAddr, wcslen(strWSUSAddr) * 2);
@@ -429,7 +429,7 @@ void SetWSUSServerConn()
 	RegCloseKey(hKey);
 
 	// 시작
-	if (svcStatus.dwCurrentState == SERVICE_STOPPED)
+	if (!svcStatus.dwCurrentState || svcStatus.dwCurrentState == SERVICE_STOPPED)
 	{
 		StartService(svcMain, 0, NULL);
 		while (svcStatus.dwCurrentState == SERVICE_STOPPED)

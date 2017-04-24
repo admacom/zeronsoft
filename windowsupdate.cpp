@@ -5,8 +5,6 @@
 #include <atlconv.h>
 #include <locale.h>
 #include <list>
-#include <io.h>
-
 
 using namespace std;
 

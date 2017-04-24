@@ -5,6 +5,7 @@
 #include <atlconv.h>
 #include <locale.h>
 #include <list>
+#include <io.h>
 
 
 using namespace std;
@@ -362,20 +363,14 @@ void SetWSUSServerConn()
 	SC_HANDLE svcManager = NULL;
 	SC_HANDLE svcMain = NULL;
 	SERVICE_STATUS svcStatus {};
-	
-	STARTUPINFO startup_info = { sizeof(STARTUPINFO) };
-	startup_info.dwFlags = STARTF_USESHOWWINDOW;
-	startup_info.wShowWindow = SW_HIDE;
-
-	PROCESS_INFORMATION proc_info;
 
 	setlocale(LC_ALL, "korean");
-	CreateProcess(L"cmd.exe", L"gpupdate /force", NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
-	WaitForInputIdle(proc_info.hProcess, INFINITE);
 
 	svcManager = OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
 	svcMain = OpenService(svcManager, L"wuauserv", SERVICE_ALL_ACCESS);
 	QueryServiceStatus(svcMain, &svcStatus);
+
+	ChangeServiceConfig(svcMain, SERVICE_NO_CHANGE, SERVICE_DEMAND_START, SERVICE_NO_CHANGE, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
 	// Á¾·á
 	if (svcStatus.dwCurrentState && svcStatus.dwCurrentState != SERVICE_STOPPED)
@@ -425,6 +420,7 @@ void SetWSUSServerConn()
 	RegDeleteValue(hKey, L"AccountDomainSid");
 	RegDeleteValue(hKey, L"PingID");
 	RegDeleteValue(hKey, L"SusClientId");
+	RegDeleteValue(hKey, L"SusClientIdValidation");
 	
 	RegCloseKey(hKey);
 
@@ -442,8 +438,22 @@ void SetWSUSServerConn()
 	CloseServiceHandle(svcManager);
 	CloseServiceHandle(svcMain);
 
-	CreateProcess(L"cmd.exe", L"wuauclt /resetauthorization /detectnow", NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
-	WaitForInputIdle(proc_info.hProcess, INFINITE);
+	PVOID prevContext = NULL;
+	Wow64DisableWow64FsRedirection(&prevContext);
+
+	SHELLEXECUTEINFO startup_info;
+	ZeroMemory(&startup_info, sizeof(SHELLEXECUTEINFO));
+	startup_info.cbSize = sizeof(SHELLEXECUTEINFO);
+	startup_info.lpFile = L"wuauclt.exe";
+	startup_info.lpParameters = L"/resetauthorization /detectnow";
+	startup_info.nShow = SW_SHOWMINIMIZED; 
+	startup_info.lpVerb = L"runas";
+	startup_info.fMask = SEE_MASK_NOCLOSEPROCESS;
+
+	int result2 = ShellExecuteEx(&startup_info);
+	Wow64RevertWow64FsRedirection(prevContext);
+
+	Sleep(1000);
 }
 
 void SearchProgramHotfix()

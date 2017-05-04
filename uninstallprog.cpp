@@ -43,6 +43,7 @@ bool usingThread = true;
 int check_inteval = 1500;
 void ExitUninstallAfterWeb();
 
+
 // 설치 메인 윈도우 텍스트
 TCHAR MainWindowText[1024];
 HWND SubWindowHWND;
@@ -50,17 +51,18 @@ HWND SubWindowHWND;
 // MCAFEE HARDCODING
 void UninstallMcafee(HWND hwnd);
 
+
 // 설치 프로세스
 bool IsFileExecuteUninstall(WCHAR* execPath, WCHAR* existspath);
 bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath);
 
 int main(int argc, char** argv)
-{
-	argv[1] = "XAMPP";
-
+{ 
+	argv[1] = "픽픽(PicPick)";
+	
 	WCHAR ProgramName[1024] = { '\0', };
 	size_t org_len = strlen(argv[1]) + 1;
-	size_t convertedChars = 0;
+	size_t convertedChars = 0; 
 	setlocale(LC_ALL, "korean");
 
 	mbstowcs_s(&convertedChars, ProgramName, org_len, argv[1], _TRUNCATE);
@@ -68,13 +70,14 @@ int main(int argc, char** argv)
 	GetInstalledProgram(L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 	GetInstalledProgram(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 	
-	getchar();
 	system("pause");
+	getchar();
 	return 0;
 }
 
 bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 {
+
 	HKEY hUninstKey = NULL;
 	HKEY hAppKey = NULL;
 	WCHAR sAppKeyName[1024] = { '\0', };
@@ -233,8 +236,8 @@ HWND GetWinHandle(ULONG pid)
 
 BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM lParam) {
 
-	TCHAR lstFindText[21][15] = { _T("Next"), _T("다음"), _T("닫음"), _T("Uninstall"), _T("Remove"), _T("예"), _T("예(Y)") , _T("제거"), _T("마침"), _T("Yes"), _T("Close"), _T("Finish"), _T("세이프"), _T("확인"), _T("예(&Y)"), _T("완료"), _T("무시(&I)"), _T("OK")
-								, _T("&Close"), _T("&Uninstall"), _T("Ok") };
+	TCHAR lstFindText[25][15] = { _T("Next"), _T("다음"), _T("닫음"), _T("Uninstall"), _T("Remove"), _T("예"), _T("예(Y)") , _T("제거"), _T("마침"), _T("Yes"), _T("Close"), _T("Finish"), _T("세이프"), _T("확인"), _T("예(&Y)"), _T("완료"), _T("무시(&I)"), _T("OK")
+								, _T("&Close"), _T("&Uninstall"), _T("Ok"), _T("다시 시도(&R)"), _T("&Next >"), _T("Yes to All"), _T("마침(&F)") };
 	TCHAR lstFinishText[5][10] = { _T("Finish"), _T("닫기"), _T("제거되었습니다"), _T("마침"), _T("완료") };
 	TCHAR lstRebootText[2][10] = { _T("Reboot"), _T("Restart") };
 	TCHAR lstRebootFindText[5][10] = { _T("No"), _T("Later"), _T("later"), _T("나중") , _T("다음") };
@@ -260,6 +263,7 @@ BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM lParam) {
 		if (findCtrlText.Find(lstRebootFindText[i]) >= 0)
 			unInstallReboot = true;
 	}
+
 
 	if (!unInstallReboot)
 	{
@@ -330,6 +334,19 @@ BOOL CALLBACK WorkerProc(HWND hwnd, LPARAM lParam) {
 	if (distText.Find(sourceText) >= 0) {
 		SubWindowHWND = hwnd; 
 	}
+	else
+	{
+		CString findWindowText[] = {"제거", "언인스톨", "Uninstall", "Remove" , "Delete" };
+
+		for (int i = 0; i < findWindowText->GetLength(); i++)
+		{
+			if (distText.Find(findWindowText[i]) >= 0)
+			{
+				SubWindowHWND = hwnd;
+				break;
+			}
+		}
+	}
 
 	return TRUE;
 }
@@ -347,7 +364,8 @@ void ExitRelationProcess(TCHAR* folderPath)
 	WIN32_FIND_DATA find_data;
 	HANDLE file_handle;
 
-	file_handle = FindFirstFile(folderPath, &find_data);
+	TCHAR* real_path = _tcstok(folderPath, _T("\""));
+	file_handle = FindFirstFile(real_path, &find_data);
 
 	if (file_handle == INVALID_HANDLE_VALUE)
 		return;
@@ -360,10 +378,13 @@ void ExitRelationProcess(TCHAR* folderPath)
 		while (bProcessFound)
 		{
 			// 프로세스랑 파일명하고 매칭 되면
-			if (process_file.Compare((LPCTSTR)ProcessEntry32.szExeFile) == 0)
+			if (process_file.Find(L"uninst") != 0)
 			{
-				HANDLE open_handle = OpenProcess(PROCESS_TERMINATE, FALSE, ProcessEntry32.th32ProcessID);
-				TerminateProcess(open_handle, ((UINT)-1));
+				if (process_file.Compare((LPCTSTR)ProcessEntry32.szExeFile) == 0)
+				{
+					HANDLE open_handle = OpenProcess(PROCESS_TERMINATE, FALSE, ProcessEntry32.th32ProcessID);
+					TerminateProcess(open_handle, ((UINT)-1));
+				}
 			}
 			bProcessFound = Process32Next(hSnapshot, &ProcessEntry32);
 		}
@@ -443,14 +464,6 @@ void UninstallMcafee(HWND hwnd)
 	PostMessage(hwnd, WM_KEYDOWN, VK_TAB, 1);
 	PostMessage(hwnd, WM_KEYUP, VK_TAB, 1);
 
-	// SPACE 버튼
-	PostMessage(hwnd, WM_KEYDOWN, VK_SPACE, 1);
-	PostMessage(hwnd, WM_KEYUP, VK_SPACE, 1);
-
-	// TAB 버튼
-	PostMessage(hwnd, WM_KEYDOWN, VK_TAB, 1);
-	PostMessage(hwnd, WM_KEYUP, VK_TAB, 1);
-
 	// TAB 버튼
 	PostMessage(hwnd, WM_KEYDOWN, VK_TAB, 1);
 	PostMessage(hwnd, WM_KEYUP, VK_TAB, 1);
@@ -503,6 +516,15 @@ bool IsFileExecuteUninstall(WCHAR* execPath, WCHAR* existspath)
 
 bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 {
+	WCHAR *clone_path = new WCHAR[wcslen(execPath) + 1];
+	wcscpy(clone_path, execPath);
+
+	// 관련 프로세스 종료
+	if (existspath[0] != '\0')
+	{
+		PathRemoveFileSpec(existspath);
+		ExitRelationProcess(existspath);
+	}
 
 	STARTUPINFO startup_info = { sizeof(STARTUPINFO) };
 	startup_info.dwFlags = STARTF_USESHOWWINDOW;
@@ -512,7 +534,7 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 	BOOL proc_ret;
 
 	HWND CHWND = GetForegroundWindow();
-	proc_ret = CreateProcess(NULL, execPath, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
+	proc_ret = CreateProcess(NULL, clone_path, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
 
 	if (proc_ret)
 	{
@@ -522,7 +544,7 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 		HWND UninstallHWND = GetForegroundWindow();
 		while (CHWND == UninstallHWND)
 		{
-			Sleep(100);
+			Sleep(200 );
 			UninstallHWND = GetForegroundWindow();
 		}
 
@@ -549,14 +571,10 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 				// WEB 기반 제거의 경우
 				if (wcsstr(MainWindowText, L"McAfee  보안센터"))
 				{
-					Sleep(5000);
+					Sleep(8000);
 					UninstallMcafee(ieWindow);
 				}
 			}
-
-			// 관련 프로세스 종료
-			if (existspath[0] != '\0')
-				ExitRelationProcess(existspath);
 
 			// 타이틀로 끝날때 까지 찾기
 			while (true)

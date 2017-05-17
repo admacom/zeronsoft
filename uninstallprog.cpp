@@ -71,8 +71,8 @@ int main(int argc, char** argv)
 
 	mbstowcs_s(&convertedChars, ProgramName, org_len, argv[1], _TRUNCATE);
 
-	// GetInstalledProgram(L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
-	// GetInstalledProgram(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
+	GetInstalledProgram(L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
+	GetInstalledProgram(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 	
 	GetInstalledProgram_uninst();
 
@@ -650,29 +650,32 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 
 void GetInstalledProgram_uninst()
 {
-	HKEY hUninstKey = NULL;
-	HKEY hAppKey = NULL;
-	WCHAR sAppKeyName[1024] = { '\0', };
-	WCHAR sSubKey[1024] = { '\0', };
-	WCHAR sDisplayName[1024] = { '\0', };
-	long lResult = ERROR_SUCCESS;
-	DWORD dwType = KEY_ALL_ACCESS;
-	DWORD dwBufferSize = 0;
-	DWORD dwDisplayBufSize = 0;
-	bool regOpenResult = false;
 	std::list<char *> lstCollection;
+	WCHAR* lstregKeyPath[2] = { L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall" };
 
-	WCHAR* lstRegKey[2] = { L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall" };
-
-	for (int i = 0; i < sizeof(lstRegKey) / sizeof(WCHAR*); i++)
+	for (int i = 0; i <2; i++)
 	{
+		HKEY hUninstKey = NULL;
+		HKEY hAppKey = NULL;
+		WCHAR sAppKeyName[1024] = { '\0', };
+		WCHAR sSubKey[1024] = { '\0', };
+		WCHAR sDisplayName[1024] = { '\0', };
+		long lResult = ERROR_SUCCESS;
+		DWORD dwType = KEY_ALL_ACCESS;
+		DWORD dwBufferSize = 0;
+		DWORD dwDisplayBufSize = 0;
+		bool regOpenResult = false;
+
 		if (IsWow64())
-			regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, lstRegKey[i], 0, KEY_READ | KEY_WOW64_64KEY, &hUninstKey) != ERROR_SUCCESS;
+			regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, lstregKeyPath[i], 0, KEY_READ | KEY_WOW64_64KEY, &hUninstKey) != ERROR_SUCCESS;
 		else
-			regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, lstRegKey[i], 0, KEY_READ, &hUninstKey) != ERROR_SUCCESS;
+			regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, lstregKeyPath[i], 0, KEY_READ, &hUninstKey) != ERROR_SUCCESS;
 
 		if (regOpenResult)
+		{
+			RegCloseKey(hUninstKey);
 			return;
+		}
 
 		for (DWORD dwIndex = 0; lResult == ERROR_SUCCESS; dwIndex++)
 		{
@@ -680,7 +683,7 @@ void GetInstalledProgram_uninst()
 			if ((lResult = RegEnumKeyEx(hUninstKey, dwIndex, sAppKeyName,
 				&dwBufferSize, NULL, NULL, NULL, NULL)) == ERROR_SUCCESS)
 			{
-				wsprintf(sSubKey, L"%s\\%s", lstRegKey[i], sAppKeyName);
+				wsprintf(sSubKey, L"%s\\%s", lstregKeyPath[i], sAppKeyName);
 
 				if (IsWow64())
 					regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, sSubKey, 0, KEY_READ | KEY_WOW64_64KEY, &hAppKey) != ERROR_SUCCESS;
@@ -696,7 +699,7 @@ void GetInstalledProgram_uninst()
 
 				dwDisplayBufSize = sizeof(sDisplayName);
 				RegQueryValueEx(hAppKey, L"DisplayName", NULL, &dwType, (unsigned char*)sDisplayName, &dwDisplayBufSize);
-
+				
 				// 중복 처리
 				USES_CONVERSION;
 				if (sDisplayName[0] != '\0')

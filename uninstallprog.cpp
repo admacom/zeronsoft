@@ -7,6 +7,7 @@
 #include <list>
 #include <thread>
 #include <Shlwapi.h>
+#include <algorithm>
 
 #pragma warning(disable: 4996)
 #pragma comment(lib, "Shlwapi.lib")
@@ -56,9 +57,12 @@ void UninstallMcafee(HWND hwnd);
 bool IsFileExecuteUninstall(WCHAR* execPath, WCHAR* existspath);
 bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath);
 
+// 설치된 목록 가져오기
+void GetInstalledProgram_uninst();
+
 int main(int argc, char** argv)
 { 
-	argv[1] = "픽픽(PicPick)";
+	argv[1] = "HP Officejet 2620 series 기본 장치 소프트웨어";
 	
 	WCHAR ProgramName[1024] = { '\0', };
 	size_t org_len = strlen(argv[1]) + 1;
@@ -67,13 +71,15 @@ int main(int argc, char** argv)
 
 	mbstowcs_s(&convertedChars, ProgramName, org_len, argv[1], _TRUNCATE);
 
-	GetInstalledProgram(L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
-	GetInstalledProgram(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
+	// GetInstalledProgram(L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
+	// GetInstalledProgram(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 	
+	GetInstalledProgram_uninst();
+
 	system("pause");
 	getchar();
 	return 0;
-}
+} 
 
 bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 {
@@ -236,10 +242,10 @@ HWND GetWinHandle(ULONG pid)
 
 BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM lParam) {
 
-	TCHAR lstFindText[25][15] = { _T("Next"), _T("다음"), _T("닫음"), _T("Uninstall"), _T("Remove"), _T("예"), _T("예(Y)") , _T("제거"), _T("마침"), _T("Yes"), _T("Close"), _T("Finish"), _T("세이프"), _T("확인"), _T("예(&Y)"), _T("완료"), _T("무시(&I)"), _T("OK")
-								, _T("&Close"), _T("&Uninstall"), _T("Ok"), _T("다시 시도(&R)"), _T("&Next >"), _T("Yes to All"), _T("마침(&F)") };
+	TCHAR lstFindText[26][15] = { _T("Next"), _T("다음"), _T("닫음"), _T("Uninstall"), _T("Remove"), _T("예"), _T("예(Y)") , _T("제거"), _T("마침"), _T("Yes"), _T("Close"), _T("Finish"), _T("세이프"), _T("확인"), _T("예(&Y)"), _T("완료"), _T("무시(&I)"), _T("OK")
+								, _T("&Close"), _T("&Uninstall"), _T("Ok"), _T("다시 시도(&R)"), _T("&Next >"), _T("Yes to All"), _T("마침(&F)"), _T("예(&Y)") };
 	TCHAR lstFinishText[5][10] = { _T("Finish"), _T("닫기"), _T("제거되었습니다"), _T("마침"), _T("완료") };
-	TCHAR lstRebootText[2][10] = { _T("Reboot"), _T("Restart") };
+	TCHAR lstRebootText[3][10] = { _T("Reboot"), _T("Restart"), _T("시작") };
 	TCHAR lstRebootFindText[5][10] = { _T("No"), _T("Later"), _T("later"), _T("나중") , _T("다음") };
 	TCHAR ctrlText[512];
 	TCHAR ctrlClass[512];
@@ -336,7 +342,7 @@ BOOL CALLBACK WorkerProc(HWND hwnd, LPARAM lParam) {
 	}
 	else
 	{
-		CString findWindowText[] = {"제거", "언인스톨", "Uninstall", "Remove" , "Delete" };
+		CString findWindowText[] = {"제거", "언인스톨", "Uninstall", "Remove" , "Delete", "Uninstallation" };
 
 		for (int i = 0; i < findWindowText->GetLength(); i++)
 		{
@@ -508,16 +514,36 @@ bool IsFileExecuteUninstall(WCHAR* execPath, WCHAR* existspath)
 	usingThread = false;
 	bat_block_thread.join();
 
-	if (!PathFileExists(existspath))
-		return true;
+	WCHAR real_path[1024] = L"";
+	for (int i = wcslen(existspath); i > 0; i--)
+	{
+		if ((char)(*(existspath + i)) == ' ')
+		{
+			wcsncpy(real_path, existspath, i);
+			break;
+		}
+	}
+
+	if (wcslen(real_path) < 12)
+	{
+		if (!PathFileExists(existspath))
+			return true;
+		else
+			return false;
+	}
 	else
-		return false;
+	{
+		if (!PathFileExists(real_path))
+			return true;
+		else
+			return false;
+	}
 }
 
 bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 {
-	WCHAR *clone_path = new WCHAR[wcslen(execPath) + 1];
-	wcscpy(clone_path, execPath);
+	WCHAR *clone_path = new WCHAR[wcslen(existspath) + 1];
+	wcscpy(clone_path, existspath);
 
 	// 관련 프로세스 종료
 	if (existspath[0] != '\0')
@@ -620,4 +646,88 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 		else
 			return false;
 	}
+}
+
+void GetInstalledProgram_uninst()
+{
+	HKEY hUninstKey = NULL;
+	HKEY hAppKey = NULL;
+	WCHAR sAppKeyName[1024] = { '\0', };
+	WCHAR sSubKey[1024] = { '\0', };
+	WCHAR sDisplayName[1024] = { '\0', };
+	long lResult = ERROR_SUCCESS;
+	DWORD dwType = KEY_ALL_ACCESS;
+	DWORD dwBufferSize = 0;
+	DWORD dwDisplayBufSize = 0;
+	bool regOpenResult = false;
+	std::list<char *> lstCollection;
+
+	WCHAR* lstRegKey[2] = { L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall" };
+
+	for (int i = 0; i < sizeof(lstRegKey) / sizeof(WCHAR*); i++)
+	{
+		if (IsWow64())
+			regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, lstRegKey[i], 0, KEY_READ | KEY_WOW64_64KEY, &hUninstKey) != ERROR_SUCCESS;
+		else
+			regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, lstRegKey[i], 0, KEY_READ, &hUninstKey) != ERROR_SUCCESS;
+
+		if (regOpenResult)
+			return;
+
+		for (DWORD dwIndex = 0; lResult == ERROR_SUCCESS; dwIndex++)
+		{
+			dwBufferSize = sizeof(sAppKeyName);
+			if ((lResult = RegEnumKeyEx(hUninstKey, dwIndex, sAppKeyName,
+				&dwBufferSize, NULL, NULL, NULL, NULL)) == ERROR_SUCCESS)
+			{
+				wsprintf(sSubKey, L"%s\\%s", lstRegKey[i], sAppKeyName);
+
+				if (IsWow64())
+					regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, sSubKey, 0, KEY_READ | KEY_WOW64_64KEY, &hAppKey) != ERROR_SUCCESS;
+				else
+					regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, sSubKey, 0, KEY_READ, &hAppKey) != ERROR_SUCCESS;
+
+				if (regOpenResult)
+				{
+					RegCloseKey(hAppKey);
+					RegCloseKey(hUninstKey);
+					return;
+				}
+
+				dwDisplayBufSize = sizeof(sDisplayName);
+				RegQueryValueEx(hAppKey, L"DisplayName", NULL, &dwType, (unsigned char*)sDisplayName, &dwDisplayBufSize);
+
+				// 중복 처리
+				USES_CONVERSION;
+				if (sDisplayName[0] != '\0')
+				{
+					if (lstCollection.size() > 0)
+					{
+						bool find_install = false;
+						char * conv_name = W2A(sDisplayName);
+
+						for (std::list<char *>::iterator it = lstCollection.begin(); it != lstCollection.end(); ++it)
+						{
+							if (!strcmp(*it, conv_name))
+							{
+								find_install = true;
+								break;
+							}
+						}
+						if (!find_install)
+							lstCollection.push_back(conv_name);
+					}
+					else lstCollection.push_back(W2A(sDisplayName));
+				}
+				RegCloseKey(hAppKey);
+			}
+		}
+
+		RegCloseKey(hUninstKey);
+	}
+
+	for (std::list<char *>::iterator it = lstCollection.begin(); it != lstCollection.end(); ++it)
+		printf("%s\n", *it);
+
+	return;
 }

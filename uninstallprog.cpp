@@ -8,6 +8,7 @@
 #include <thread>
 #include <Shlwapi.h>
 #include <algorithm>
+#include <Math.h>
 
 #pragma warning(disable: 4996)
 #pragma comment(lib, "Shlwapi.lib")
@@ -57,8 +58,21 @@ void UninstallMcafee(HWND hwnd);
 bool IsFileExecuteUninstall(WCHAR* execPath, WCHAR* existspath);
 bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath);
 
+
+// 설치된 프로그램 사이즈 가져오기
+int TransverseDirectory(CString path);
+
+// 설치 정보 구조체
+struct InstallInfo
+{
+	char* InstallName;
+	char* InstallPublisher;
+	char* InstallDate;
+	double InstallSize;
+};
+
 // 설치된 목록 가져오기
-void GetInstalledProgram_uninst();
+std::list<InstallInfo> GetWindowsInstalledProgramList();
 
 int main(int argc, char** argv)
 { 
@@ -74,7 +88,7 @@ int main(int argc, char** argv)
 	GetInstalledProgram(L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 	GetInstalledProgram(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 	
-	GetInstalledProgram_uninst();
+	GetWindowsInstalledProgramList();
 
 	system("pause");
 	getchar();
@@ -648,9 +662,9 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 	}
 }
 
-void GetInstalledProgram_uninst()
+std::list<InstallInfo> GetWindowsInstalledProgramList()
 {
-	std::list<char *> lstCollection;
+	std::list<InstallInfo> lstCollection;
 	WCHAR* lstregKeyPath[2] = { L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall" };
 
 	for (int i = 0; i <2; i++)
@@ -660,10 +674,16 @@ void GetInstalledProgram_uninst()
 		WCHAR sAppKeyName[1024] = { '\0', };
 		WCHAR sSubKey[1024] = { '\0', };
 		WCHAR sDisplayName[1024] = { '\0', };
+		WCHAR sPublisher[1024] = { '\0', };
+		WCHAR sInstallDate[1024] = { '\0', };
+		WCHAR sInstallLocation[1024] = { '\0', };
 		long lResult = ERROR_SUCCESS;
 		DWORD dwType = KEY_ALL_ACCESS;
 		DWORD dwBufferSize = 0;
 		DWORD dwDisplayBufSize = 0;
+		DWORD dwPublisherBufSize = 0;
+		DWORD dwInstallDateBufSize = 0;
+		DWORD dwInstallLocationBufSize = 0;
 		bool regOpenResult = false;
 
 		if (IsWow64())
@@ -674,7 +694,7 @@ void GetInstalledProgram_uninst()
 		if (regOpenResult)
 		{
 			RegCloseKey(hUninstKey);
-			return;
+			return lstCollection;
 		}
 
 		for (DWORD dwIndex = 0; lResult == ERROR_SUCCESS; dwIndex++)
@@ -694,33 +714,60 @@ void GetInstalledProgram_uninst()
 				{
 					RegCloseKey(hAppKey);
 					RegCloseKey(hUninstKey);
-					return;
+					return lstCollection;
 				}
 
 				dwDisplayBufSize = sizeof(sDisplayName);
+				dwPublisherBufSize = sizeof(sPublisher);
+				dwInstallDateBufSize = sizeof(sInstallDate);
+				dwInstallLocationBufSize = sizeof(sInstallLocation);
+				
+				wsprintf(sDisplayName, L"");
+				wsprintf(sPublisher, L"");
+				wsprintf(sInstallDate, L"");
+				wsprintf(sInstallLocation, L"");
+				
 				RegQueryValueEx(hAppKey, L"DisplayName", NULL, &dwType, (unsigned char*)sDisplayName, &dwDisplayBufSize);
+				RegQueryValueEx(hAppKey, L"Publisher", NULL, &dwType, (unsigned char*)sPublisher, &dwPublisherBufSize);
+				RegQueryValueEx(hAppKey, L"InstallDate", NULL, &dwType, (unsigned char*)sInstallDate, &dwInstallDateBufSize);
+				RegQueryValueEx(hAppKey, L"InstallLocation", NULL, &dwType, (unsigned char*)sInstallLocation, &dwInstallLocationBufSize);
 				
 				// 중복 처리
 				USES_CONVERSION;
 				if (sDisplayName[0] != '\0')
 				{
+					InstallInfo install_data = {};
+					install_data.InstallName = W2A(sDisplayName);
+					install_data.InstallPublisher = W2A(sPublisher);
+					install_data.InstallDate = W2A(sInstallDate);
+					
+					if (sInstallLocation[0] != '\0')
+					{
+						int number = 2;
+						int p = pow(10, number);
+						double value = (double)((double)(TransverseDirectory(sInstallLocation) / 1024) / 1024);
+						install_data.InstallSize = floor((value * p) + 0.5f) / p;
+					}
+					else
+						install_data.InstallSize = 0;
+
 					if (lstCollection.size() > 0)
 					{
 						bool find_install = false;
 						char * conv_name = W2A(sDisplayName);
 
-						for (std::list<char *>::iterator it = lstCollection.begin(); it != lstCollection.end(); ++it)
+						for (std::list<InstallInfo>::iterator it = lstCollection.begin(); it != lstCollection.end(); ++it)
 						{
-							if (!strcmp(*it, conv_name))
+							if (!strcmp(it->InstallName, install_data.InstallName))
 							{
 								find_install = true;
 								break;
 							}
 						}
 						if (!find_install)
-							lstCollection.push_back(conv_name);
+							lstCollection.push_back(install_data);
 					}
-					else lstCollection.push_back(W2A(sDisplayName));
+					else lstCollection.push_back(install_data);
 				}
 				RegCloseKey(hAppKey);
 			}
@@ -729,8 +776,37 @@ void GetInstalledProgram_uninst()
 		RegCloseKey(hUninstKey);
 	}
 
-	for (std::list<char *>::iterator it = lstCollection.begin(); it != lstCollection.end(); ++it)
-		printf("%s\n", *it);
+	return lstCollection;
+}
 
-	return;
+int TransverseDirectory(CString path)
+{
+	USES_CONVERSION;
+	
+	WIN32_FIND_DATA data;
+	int size = 0;
+	CString fname = path + "\\*.*";
+	HANDLE h = FindFirstFile(fname.GetBuffer(0), &data);
+	if (h != INVALID_HANDLE_VALUE)
+	{
+		do {
+			if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+			{
+				if (strcmp(W2A(data.cFileName), ".") != 0 && strcmp(W2A(data.cFileName), "..") != 0)
+				{
+					fname = path + "\\" + data.cFileName;
+					size += TransverseDirectory(fname);
+				}
+			}
+			else
+			{
+				LARGE_INTEGER sz;
+				sz.LowPart = data.nFileSizeLow;
+				sz.HighPart = data.nFileSizeHigh;
+				size += sz.QuadPart;
+			}
+		} while (FindNextFile(h, &data) != 0);
+		FindClose(h);
+	}
+	return size;
 }

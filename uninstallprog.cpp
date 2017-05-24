@@ -360,7 +360,7 @@ BOOL CALLBACK WorkerProc(HWND hwnd, LPARAM lParam) {
 
 		for (int i = 0; i < findWindowText->GetLength(); i++)
 		{
-			if (distText.Find(findWindowText[i]) && hwnd  == FindWindow(NULL, NULL))
+			if (distText.Find(findWindowText[i]))
 			{
 				SubWindowHWND = hwnd;
 				break;

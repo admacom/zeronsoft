@@ -76,8 +76,8 @@ std::list<InstallInfo> GetWindowsInstalledProgramList();
 
 int main(int argc, char** argv)
 { 
-	argv[1] = "HP Officejet 2620 series 기본 장치 소프트웨어";
-	
+	argv[1] = "곰플레이어";
+
 	WCHAR ProgramName[1024] = { '\0', };
 	size_t org_len = strlen(argv[1]) + 1;
 	size_t convertedChars = 0; 
@@ -88,7 +88,7 @@ int main(int argc, char** argv)
 	GetInstalledProgram(L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 	GetInstalledProgram(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 	
-	GetWindowsInstalledProgramList();
+	//GetWindowsInstalledProgramList();
 
 	system("pause");
 	getchar();
@@ -360,7 +360,7 @@ BOOL CALLBACK WorkerProc(HWND hwnd, LPARAM lParam) {
 
 		for (int i = 0; i < findWindowText->GetLength(); i++)
 		{
-			if (distText.Find(findWindowText[i]) >= 0)
+			if (distText.Find(findWindowText[i]) && hwnd  == FindWindow(NULL, NULL))
 			{
 				SubWindowHWND = hwnd;
 				break;
@@ -626,6 +626,7 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 					// 이름이 변경되어 못찾을 경우
 					if (unintstallSub == NULL)
 					{
+						SubWindowHWND = NULL;
 						EnumWindows(WorkerProc, 0);
 
 						if (SubWindowHWND == NULL)
@@ -641,7 +642,31 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 						if (TitleHard != NULL)
 							EnumChildWindows(TitleHard, EnumChildProc, 0);
 						else
-							EnumChildWindows(unintstallSub, EnumChildProc, 0);
+						{
+							if (unintstallSub != GetForegroundWindow())
+							{
+								static TCHAR buffer[1024];
+								GetWindowText(GetForegroundWindow(), buffer, 1024);
+
+								CString findWindowText[] = { "제거", "언인스톨", "Uninstall", "Remove" , "Delete", "Uninstallation" };
+								CString distText = (LPCTSTR)buffer;
+
+								bool findWindow = false;
+								for (int i = 0; i < findWindowText->GetLength(); i++)
+								{
+									if (distText.Find(findWindowText[i]))
+									{
+										findWindow = true;
+										SubWindowHWND = GetForegroundWindow();
+										break;
+									}
+								}
+								if(findWindow)
+									EnumChildWindows(SubWindowHWND, EnumChildProc, 0);
+								else break;
+							}
+							else EnumChildWindows(unintstallSub, EnumChildProc, 0);
+						}
 					}
 
 					Sleep(1000);
@@ -776,6 +801,14 @@ std::list<InstallInfo> GetWindowsInstalledProgramList()
 		RegCloseKey(hUninstKey);
 	}
 
+	std::list<InstallInfo>::iterator it = lstCollection.begin();
+
+	while (it != lstCollection.end())
+	{
+		printf("%s -> %.2lfMB\n", it->InstallName, it->InstallSize);
+		++it;
+	}
+
 	return lstCollection;
 }
 
@@ -785,7 +818,14 @@ int TransverseDirectory(CString path)
 	
 	WIN32_FIND_DATA data;
 	int size = 0;
-	CString fname = path + "\\*.*";
+
+	CString fname;
+
+	if (path.Right(1) != _T("\\"))
+		fname = path + "\\*.*";
+	else
+		fname = path + "*.*";
+
 	HANDLE h = FindFirstFile(fname.GetBuffer(0), &data);
 	if (h != INVALID_HANDLE_VALUE)
 	{

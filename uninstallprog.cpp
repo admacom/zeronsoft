@@ -45,7 +45,6 @@ bool usingThread = true;
 int check_inteval = 1500;
 void ExitUninstallAfterWeb();
 
-
 // 설치 메인 윈도우 텍스트
 TCHAR MainWindowText[1024];
 HWND SubWindowHWND;
@@ -76,7 +75,7 @@ std::list<InstallInfo> GetWindowsInstalledProgramList();
 
 int main(int argc, char** argv)
 { 
-	argv[1] = "곰플레이어";
+	argv[1] = "1234";
 
 	WCHAR ProgramName[1024] = { '\0', };
 	size_t org_len = strlen(argv[1]) + 1;
@@ -351,7 +350,7 @@ BOOL CALLBACK WorkerProc(HWND hwnd, LPARAM lParam) {
 	CString distText = (LPCTSTR)buffer;
 	CString sourceText = (LPCTSTR)MainWindowText;
 
-	if (distText.Find(sourceText) >= 0) {
+	if (!(distText.Compare(L"") == 0) && distText.Find(sourceText) > -1) {
 		SubWindowHWND = hwnd; 
 	}
 	else
@@ -360,7 +359,7 @@ BOOL CALLBACK WorkerProc(HWND hwnd, LPARAM lParam) {
 
 		for (int i = 0; i < findWindowText->GetLength(); i++)
 		{
-			if (distText.Find(findWindowText[i]))
+			if (!(distText.Compare(L"") == 0) && distText.Find(findWindowText[i]) > -1)
 			{
 				SubWindowHWND = hwnd;
 				break;
@@ -654,7 +653,7 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 								bool findWindow = false;
 								for (int i = 0; i < findWindowText->GetLength(); i++)
 								{
-									if (distText.Find(findWindowText[i]))
+									if (!(distText.Compare(L"") == 0) && distText.Find(findWindowText[i]) > -1)
 									{
 										findWindow = true;
 										SubWindowHWND = GetForegroundWindow();

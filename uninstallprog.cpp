@@ -60,7 +60,6 @@ HWND SubWindowHWND;
 // MCAFEE HARDCODING
 void UninstallMcafee(HWND hwnd);
 
-
 // 설치 프로세스
 bool IsFileExecuteUninstall(WCHAR* execPath, WCHAR* existspath);
 bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath);
@@ -93,7 +92,8 @@ int main(int argc, char** argv)
 	SetBlockInternetFromRegistry();
 	GetInstalledProgram(L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 	GetInstalledProgram(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
-	
+	RealaseBlockInternetFromRegistry();
+
 	//GetWindowsInstalledProgramList();
 
 	system("pause");
@@ -183,10 +183,7 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 					wcscat_s(slientUninstallPath, L" /quiet");
 					
 					if (IsFileExecuteUninstall(slientUninstallPath, sUninstallString))
-					{
-						RealaseBlockInternetFromRegistry();
 						printf("제거 완료");
-					}
 					else
 					{
 						// 정상 제거 실패 시 일반 삭제로 변경
@@ -199,10 +196,7 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 					if (sQuietUninstallString[0] != '\0')
 					{
 						if (IsFileExecuteUninstall(sQuietUninstallString, sUninstallString))
-						{
-							RealaseBlockInternetFromRegistry();
 							printf("제거 완료");
-						}
 						else
 							printf("제거 실패");
 					}
@@ -215,20 +209,14 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 							wcscat_s(sUninstallString, L" /quiet");
 
 							if (IsFileExecuteUninstall(sUninstallString, sUninstallString))
-							{
-								RealaseBlockInternetFromRegistry();
 								printf("제거 완료");
-							}
 							else
 								printf("제거 실패");
 						}
 						else
 						{
 							if (IsNormalUninstall(sUninstallString, sUninstallString))
-							{
-								RealaseBlockInternetFromRegistry();
 								printf("제거 완료");
-							}
 							else
 								printf("제거 실패");
 						}

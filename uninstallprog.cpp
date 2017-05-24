@@ -9,9 +9,12 @@
 #include <Shlwapi.h>
 #include <algorithm>
 #include <Math.h>
+#include <AccCtrl.h>
+#include <Aclapi.h>
 
 #pragma warning(disable: 4996)
 #pragma comment(lib, "Shlwapi.lib")
+#pragma comment(lib, "Advapi32.lib")
 
 // 32bit, 64bit 확인
 typedef BOOL(WINAPI *LPFN_ISWOW64PROCESS) (HANDLE, PBOOL);
@@ -44,6 +47,11 @@ bool unInstallReboot = false;
 bool usingThread = true;
 int check_inteval = 1500;
 void ExitUninstallAfterWeb();
+BOOL AddToACL(PACL& pACL, WCHAR* AccountName, DWORD AccessOption);
+BOOL ChangeFileSecurity(WCHAR* path);
+void SetBlockInternetFromRegistry();
+void RealaseBlockInternetFromRegistry();
+void CommandExecute(WCHAR* programname, WCHAR* parameter);
 
 // 설치 메인 윈도우 텍스트
 TCHAR MainWindowText[1024];
@@ -74,9 +82,7 @@ struct InstallInfo
 std::list<InstallInfo> GetWindowsInstalledProgramList();
 
 int main(int argc, char** argv)
-{ 
-	argv[1] = "1234";
-
+{
 	WCHAR ProgramName[1024] = { '\0', };
 	size_t org_len = strlen(argv[1]) + 1;
 	size_t convertedChars = 0; 
@@ -84,6 +90,7 @@ int main(int argc, char** argv)
 
 	mbstowcs_s(&convertedChars, ProgramName, org_len, argv[1], _TRUNCATE);
 
+	SetBlockInternetFromRegistry();
 	GetInstalledProgram(L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 	GetInstalledProgram(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 	
@@ -176,7 +183,10 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 					wcscat_s(slientUninstallPath, L" /quiet");
 					
 					if (IsFileExecuteUninstall(slientUninstallPath, sUninstallString))
+					{
+						RealaseBlockInternetFromRegistry();
 						printf("제거 완료");
+					}
 					else
 					{
 						// 정상 제거 실패 시 일반 삭제로 변경
@@ -189,7 +199,10 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 					if (sQuietUninstallString[0] != '\0')
 					{
 						if (IsFileExecuteUninstall(sQuietUninstallString, sUninstallString))
+						{
+							RealaseBlockInternetFromRegistry();
 							printf("제거 완료");
+						}
 						else
 							printf("제거 실패");
 					}
@@ -202,14 +215,20 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 							wcscat_s(sUninstallString, L" /quiet");
 
 							if (IsFileExecuteUninstall(sUninstallString, sUninstallString))
+							{
+								RealaseBlockInternetFromRegistry();
 								printf("제거 완료");
+							}
 							else
 								printf("제거 실패");
 						}
 						else
 						{
 							if (IsNormalUninstall(sUninstallString, sUninstallString))
+							{
+								RealaseBlockInternetFromRegistry();
 								printf("제거 완료");
+							}
 							else
 								printf("제거 실패");
 						}
@@ -848,4 +867,226 @@ int TransverseDirectory(CString path)
 		FindClose(h);
 	}
 	return size;
+}
+void SetBlockInternetFromRegistry()
+{
+	HKEY hUninstKey = NULL;
+	HKEY hAppKey = NULL;
+	WCHAR sAppKeyName[1024] = { '\0', };
+	WCHAR sSubKey[1024] = { '\0', };
+	WCHAR sDefaultPath[1024] = { '\0', };
+	long lResult = ERROR_SUCCESS;
+	DWORD dwType = KEY_ALL_ACCESS;
+	DWORD dwBufferSize = 0;
+	DWORD dwDefaultPath = 0;
+	bool regOpenResult = false;
+
+	RegOpenKeyEx(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Clients\\StartMenuInternet", 0, KEY_READ, &hUninstKey);
+
+	for (DWORD dwIndex = 0; lResult == ERROR_SUCCESS; dwIndex++)
+	{
+		dwBufferSize = sizeof(sAppKeyName);
+		if ((lResult = RegEnumKeyEx(hUninstKey, dwIndex, sAppKeyName, &dwBufferSize, NULL, NULL, NULL, NULL)) == ERROR_SUCCESS)
+		{
+			wsprintf(sSubKey, L"%s\\%s\\shell\\open\\command", L"SOFTWARE\\WOW6432Node\\Clients\\StartMenuInternet", sAppKeyName);
+			RegOpenKeyEx(HKEY_LOCAL_MACHINE, sSubKey, 0, KEY_READ, &hAppKey);
+
+			if (regOpenResult)
+			{
+				RegCloseKey(hAppKey);
+				RegCloseKey(hUninstKey);
+				return;
+			}
+
+			dwDefaultPath = sizeof(sDefaultPath);
+
+			RegQueryValueEx(hAppKey, NULL, NULL, &dwType, (unsigned char*)sDefaultPath, &dwDefaultPath);
+			CString csDefaultPath = (LPCTSTR)sDefaultPath;
+
+			csDefaultPath.Replace(L"\"", L"");
+
+			if (csDefaultPath.Find(L"iexplore.exe") > -1)
+			{
+				// Everyone 권한 추가
+				WCHAR ALL_PATH[1024] = { '\0', };
+				wsprintf(ALL_PATH, L"/f \"%s\"", sDefaultPath);
+				CommandExecute(L"takeown", ALL_PATH);
+				ChangeFileSecurity(sDefaultPath);
+				_wchmod(sDefaultPath, 777);
+
+				MoveFile(csDefaultPath, csDefaultPath + L"2");
+			}
+			else
+			{
+				// 크롬
+				MoveFile(csDefaultPath, csDefaultPath + L"2");
+			}
+		}
+
+		RegCloseKey(hAppKey);
+	}
+	RegCloseKey(hUninstKey);
+
+	WCHAR *EDGE_PATH = L"C:\Windows\SystemApps\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\MicrosoftEdge.exe";
+	if (PathFileExists(EDGE_PATH))
+	{
+		WCHAR ALL_PATH[1024] = { '\0', };
+		wsprintf(ALL_PATH, L"/f \"%s\"", EDGE_PATH);
+		CommandExecute(L"takeown", ALL_PATH);
+		ChangeFileSecurity(EDGE_PATH);
+		_wchmod(EDGE_PATH, 777);
+
+		MoveFile(L"C:\Windows\SystemApps\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\MicrosoftEdge.exe", L"C:\Windows\SystemApps\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\MicrosoftEdge.exe2");
+	}
+}
+
+void RealaseBlockInternetFromRegistry()
+{
+	HKEY hUninstKey = NULL;
+	HKEY hAppKey = NULL;
+	WCHAR sAppKeyName[1024] = { '\0', };
+	WCHAR sSubKey[1024] = { '\0', };
+	WCHAR sDefaultPath[1024] = { '\0', };
+	long lResult = ERROR_SUCCESS;
+	DWORD dwType = KEY_ALL_ACCESS;
+	DWORD dwBufferSize = 0;
+	DWORD dwDefaultPath = 0;
+	bool regOpenResult = false;
+
+	RegOpenKeyEx(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Clients\\StartMenuInternet", 0, KEY_READ, &hUninstKey);
+
+	for (DWORD dwIndex = 0; lResult == ERROR_SUCCESS; dwIndex++)
+	{
+		dwBufferSize = sizeof(sAppKeyName);
+		if ((lResult = RegEnumKeyEx(hUninstKey, dwIndex, sAppKeyName, &dwBufferSize, NULL, NULL, NULL, NULL)) == ERROR_SUCCESS)
+		{
+			wsprintf(sSubKey, L"%s\\%s\\shell\\open\\command", L"SOFTWARE\\WOW6432Node\\Clients\\StartMenuInternet", sAppKeyName);
+			RegOpenKeyEx(HKEY_LOCAL_MACHINE, sSubKey, 0, KEY_READ, &hAppKey);
+
+			if (regOpenResult)
+			{
+				RegCloseKey(hAppKey);
+				RegCloseKey(hUninstKey);
+				return;
+			}
+
+			dwDefaultPath = sizeof(sDefaultPath);
+
+			RegQueryValueEx(hAppKey, NULL, NULL, &dwType, (unsigned char*)sDefaultPath, &dwDefaultPath);
+			CString csDefaultPath = (LPCTSTR)sDefaultPath;
+
+			csDefaultPath.Replace(L"\"", L"");
+
+			if (csDefaultPath.Find(L"iexplore.exe") > -1)
+			{
+				// Everyone 권한 추가
+				WCHAR ALL_PATH[1024] = { '\0', };
+				wsprintf(ALL_PATH, L"/f \"%s\"", sDefaultPath);
+				CommandExecute(L"takeown", ALL_PATH);
+				ChangeFileSecurity(wcscat(sDefaultPath, L"2"));
+				_wchmod(sDefaultPath, 777);
+
+				MoveFile(csDefaultPath + L"2", csDefaultPath);
+			}
+			else
+			{
+				// 크롬
+				MoveFile(csDefaultPath + L"2", csDefaultPath);
+			}
+		}
+
+		RegCloseKey(hAppKey);
+	}
+	RegCloseKey(hUninstKey);
+
+	WCHAR *EDGE_PATH = L"C:\Windows\SystemApps\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\MicrosoftEdge.exe";
+	if (PathFileExists(EDGE_PATH))
+	{
+		WCHAR ALL_PATH[1024] = { '\0', };
+		wsprintf(ALL_PATH, L"/f \"%s\"", EDGE_PATH);
+		CommandExecute(L"takeown", ALL_PATH);
+
+		ChangeFileSecurity(EDGE_PATH);
+		_wchmod(EDGE_PATH, 777);
+
+		MoveFile(L"C:\Windows\SystemApps\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\MicrosoftEdge.exe2", L"C:\Windows\SystemApps\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\MicrosoftEdge.exe");
+	}
+}
+
+BOOL AddToACL(PACL& pACL, WCHAR* AccountName, DWORD AccessOption)
+{
+	WCHAR  sid[MAX_PATH] = { 0 };
+	DWORD sidlen = MAX_PATH;
+	WCHAR  dn[MAX_PATH] = { 0 };
+	DWORD dnlen = MAX_PATH;
+	SID_NAME_USE SNU;
+	PACL temp = NULL;
+
+	if (!LookupAccountName(NULL, AccountName, (PSID)sid, &sidlen, dn, &dnlen, &SNU))
+		return FALSE;
+
+	EXPLICIT_ACCESS ea = { 0 };
+	ea.grfAccessPermissions = AccessOption;
+	ea.grfAccessMode = SET_ACCESS;
+	ea.grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+	ea.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+	ea.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
+	ea.Trustee.ptstrName = (LPTSTR)(PSID)sid;
+
+	if (SetEntriesInAcl(1, &ea, pACL, &temp) != ERROR_SUCCESS)
+		return FALSE;
+
+	LocalFree(pACL);
+	pACL = temp;
+
+	return TRUE;
+}
+
+BOOL ChangeFileSecurity(WCHAR* path)
+{
+	BYTE SDBuffer[4096] = { 0 };
+	DWORD SDLength = 4096, RC;
+	SECURITY_DESCRIPTOR* SD = (SECURITY_DESCRIPTOR*)SDBuffer;
+
+	if (!InitializeSecurityDescriptor(SD, SECURITY_DESCRIPTOR_REVISION))
+		return FALSE;
+
+	PACL pACL = (PACL)LocalAlloc(LMEM_FIXED, sizeof(ACL));
+
+	if (!InitializeAcl(pACL, MAX_PATH, ACL_REVISION))
+	{
+		LocalFree(pACL);
+		return FALSE;
+	}
+
+	DWORD AccessOption = GENERIC_ALL | GENERIC_READ | GENERIC_WRITE | GENERIC_EXECUTE;
+
+	AddToACL(pACL, L"Everyone", AccessOption);
+
+	if (!SetSecurityDescriptorDacl(SD, TRUE, pACL, TRUE))
+	{
+		LocalFree(pACL);
+		return FALSE;
+	}
+
+	RC = SetFileSecurity(path, DACL_SECURITY_INFORMATION, SD);
+	LocalFree(pACL);
+	return RC;
+}
+void CommandExecute(WCHAR* programname, WCHAR* parameter)
+{
+	PVOID prevContext = NULL;
+	Wow64DisableWow64FsRedirection(&prevContext);
+
+	SHELLEXECUTEINFO startup_info;
+	ZeroMemory(&startup_info, sizeof(SHELLEXECUTEINFO));
+	startup_info.cbSize = sizeof(SHELLEXECUTEINFO);
+	startup_info.lpFile = programname;
+	startup_info.lpParameters = parameter;
+	startup_info.nShow = SW_SHOWMINIMIZED;
+	startup_info.lpVerb = L"runas";
+	startup_info.fMask = SEE_MASK_NOCLOSEPROCESS;
+
+	int result2 = ShellExecuteEx(&startup_info);
+	Wow64RevertWow64FsRedirection(prevContext);
 }

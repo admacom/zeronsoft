@@ -915,7 +915,7 @@ void SetBlockInternetFromRegistry()
 	}
 	RegCloseKey(hUninstKey);
 
-	WCHAR *EDGE_PATH = L"C:\Windows\SystemApps\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\MicrosoftEdge.exe";
+	WCHAR *EDGE_PATH = L"C:\\Windows\\SystemApps\\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\\MicrosoftEdge.exe";
 	if (PathFileExists(EDGE_PATH))
 	{
 		WCHAR ALL_PATH[1024] = { '\0', };
@@ -924,7 +924,7 @@ void SetBlockInternetFromRegistry()
 		ChangeFileSecurity(EDGE_PATH);
 		_wchmod(EDGE_PATH, 777);
 
-		MoveFile(L"C:\Windows\SystemApps\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\MicrosoftEdge.exe", L"C:\Windows\SystemApps\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\MicrosoftEdge.exe2");
+		MoveFile(L"C:\\Windows\\SystemApps\\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\\MicrosoftEdge.exe", L"C:\\Windows\\SystemApps\\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\\MicrosoftEdge.exe2");
 	}
 }
 
@@ -987,7 +987,7 @@ void RealaseBlockInternetFromRegistry()
 	}
 	RegCloseKey(hUninstKey);
 
-	WCHAR *EDGE_PATH = L"C:\Windows\SystemApps\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\MicrosoftEdge.exe";
+	WCHAR *EDGE_PATH = L"C:\\Windows\\SystemApps\\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\\MicrosoftEdge.exe";
 	if (PathFileExists(EDGE_PATH))
 	{
 		WCHAR ALL_PATH[1024] = { '\0', };
@@ -997,7 +997,7 @@ void RealaseBlockInternetFromRegistry()
 		ChangeFileSecurity(EDGE_PATH);
 		_wchmod(EDGE_PATH, 777);
 
-		MoveFile(L"C:\Windows\SystemApps\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\MicrosoftEdge.exe2", L"C:\Windows\SystemApps\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\MicrosoftEdge.exe");
+		MoveFile(L"C:\\Windows\\SystemApps\\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\\MicrosoftEdge.exe2", L"C:\\Windows\\SystemApps\\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\\MicrosoftEdge.exe");
 	}
 }
 

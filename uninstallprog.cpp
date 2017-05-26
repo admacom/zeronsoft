@@ -45,7 +45,7 @@ bool unInstallReboot = false;
 
 // 설치 종료 이후 웹사이트 제거
 bool usingThread = true;
-int check_inteval = 1500;
+int check_inteval = 2000;
 void ExitUninstallAfterWeb();
 BOOL AddToACL(PACL& pACL, WCHAR* AccountName, DWORD AccessOption);
 BOOL ChangeFileSecurity(WCHAR* path);
@@ -56,6 +56,7 @@ void CommandExecute(WCHAR* programname, WCHAR* parameter);
 // 설치 메인 윈도우 텍스트
 TCHAR MainWindowText[1024];
 HWND SubWindowHWND;
+HWND UninstallHWND;
 
 // MCAFEE HARDCODING
 void UninstallMcafee(HWND hwnd);
@@ -82,6 +83,8 @@ std::list<InstallInfo> GetWindowsInstalledProgramList();
 
 int main(int argc, char** argv)
 {
+	argv[1] = "V3 Lite";
+
 	WCHAR ProgramName[1024] = { '\0', };
 	size_t org_len = strlen(argv[1]) + 1;
 	size_t convertedChars = 0; 
@@ -101,9 +104,9 @@ int main(int argc, char** argv)
 	return 0;
 } 
 
+
 bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 {
-
 	HKEY hUninstKey = NULL;
 	HKEY hAppKey = NULL;
 	WCHAR sAppKeyName[1024] = { '\0', };
@@ -356,21 +359,34 @@ BOOL CALLBACK WorkerProc(HWND hwnd, LPARAM lParam) {
 
 	CString distText = (LPCTSTR)buffer;
 	CString sourceText = (LPCTSTR)MainWindowText;
+	CString findWindowText[] = { "제거", "언인스톨", "Uninstall", "Remove" , "Delete", "Uninstallation", "Setup" };
 
-	if (!(distText.Compare(L"") == 0) && distText.Find(sourceText) > -1) {
-		SubWindowHWND = hwnd; 
-	}
-	else
+	for (int i = 0; i < 7; i++)
 	{
-		CString findWindowText[] = {"제거", "언인스톨", "Uninstall", "Remove" , "Delete", "Uninstallation" };
-
-		for (int i = 0; i < findWindowText->GetLength(); i++)
+		if (distText.Find(findWindowText[i]) > -1 && IsWindowVisible(hwnd))
 		{
-			if (!(distText.Compare(L"") == 0) && distText.Find(findWindowText[i]) > -1)
-			{
-				SubWindowHWND = hwnd;
-				break;
-			}
+			SubWindowHWND = hwnd;
+			break;
+		}
+	}
+
+	return TRUE;
+}
+
+BOOL CALLBACK TerminateProc(HWND hwnd, LPARAM lParam) {
+	static TCHAR buffer[1024];
+	GetWindowText(hwnd, buffer, 1024);
+
+	CString distText = (LPCTSTR)buffer;
+	CString sourceText = (LPCTSTR)MainWindowText;
+	CString findWindowText[] = { "제거", "언인스톨", "Uninstall", "Remove" , "Delete", "Uninstallation", "Setup" };
+
+	for (int i = 0; i < 7; i++)
+	{
+		if (distText.Find(L"http://") > -1)
+		{
+			PostMessage(hwnd, WM_CLOSE, 0, 0);
+			break;
 		}
 	}
 
@@ -441,6 +457,8 @@ void ExitUninstallAfterWeb()
 				TerminateProcess(open_handle, ((UINT)-1));
 			}
 		}
+
+		EnumWindows(TerminateProc, 0);
 	}
 }
 
@@ -579,27 +597,88 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 	PROCESS_INFORMATION proc_info;
 	BOOL proc_ret;
 
-	HWND CHWND = GetForegroundWindow();
 	proc_ret = CreateProcess(NULL, clone_path, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
 
 	if (proc_ret)
 	{
+		// PID 정보로 찾음
 		WaitForInputIdle(proc_info.hProcess, INFINITE);
 		std::thread bat_block_thread(&ExitUninstallAfterWeb);
 
-		HWND UninstallHWND = GetForegroundWindow();
-		while (CHWND == UninstallHWND)
+		Sleep(2000);
+
+		int execute_count = 0;
+
+		while (UninstallHWND == NULL)
 		{
-			Sleep(200 );
-			UninstallHWND = GetForegroundWindow();
+			UninstallHWND = GetWinHandle(proc_info.dwProcessId);
+			Sleep(200);
+
+			// 5회 재시도
+			if (execute_count > 5)
+				break;
+			else execute_count++;
+		}
+
+		// 못찾으면 프로세스로 찾음
+		if (UninstallHWND == NULL)
+		{
+			CString lst_proc_name[] = { "u_.exe", "_A.exe" };
+			HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+
+			PROCESSENTRY32 ProcessEntry32;
+			ProcessEntry32.dwSize = sizeof(PROCESSENTRY32);
+
+			Process32First(hSnapshot, &ProcessEntry32);
+
+			while (Process32Next(hSnapshot, &ProcessEntry32) == TRUE)
+			{
+				bool setHWND = false;
+				CString curr_proc_name = (LPCTSTR)ProcessEntry32.szExeFile;
+				for (int i = 0; i < 2; i++)
+				{
+					if (curr_proc_name.Find(lst_proc_name[i]) > -1)
+					{
+						setHWND = true;
+						UninstallHWND = GetWinHandle(ProcessEntry32.th32ProcessID);
+						break;
+					}
+				}
+				if (setHWND)
+					break;
+			}
+		}
+
+		// 프로세스로도 찾지 못하면 타이틀 명으로 찾음
+		if (UninstallHWND == NULL)
+		{
+			SubWindowHWND = NULL;
+			EnumWindows(WorkerProc, 0);
+			UninstallHWND = SubWindowHWND;
 		}
 
 		if (UninstallHWND != NULL)
 		{
+			// 프로세스 핸들을 윈도우 최상단으로 이동
+			BringWindowToTop(UninstallHWND);
+			SetWindowPos(UninstallHWND, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE);
+			SetForegroundWindow(UninstallHWND);
+
 			TCHAR CLSNAME[1024];
+
 			// 설치 제거 타이틀 가져오기
 			GetWindowText(UninstallHWND, MainWindowText, 1024);
 			GetClassName(UninstallHWND, CLSNAME, 1024);
+
+			// 빈값일 경우에 최상단 창 다시 가져오기 (곰플레이어)
+			if (MainWindowText[0] == _T('\0'))
+			{
+				SubWindowHWND = NULL;
+				EnumWindows(WorkerProc, 0);
+
+				GetWindowText(SubWindowHWND, MainWindowText, 1024);
+				GetClassName(SubWindowHWND, CLSNAME, 1024);
+			}
 
 			// Internet Explorer_Server 인지 체크
 			HWND embWindow = FindWindowEx(UninstallHWND, NULL, L"Shell Embedding", NULL);
@@ -622,57 +701,38 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 				}
 			}
 
-			// 타이틀로 끝날때 까지 찾기
 			while (true)
 			{
-				if (!unInstallFinished)
+				if (!unInstallFinished || IsWindow(UninstallHWND))
 				{
-					HWND unintstallSub = FindWindow(NULL, MainWindowText);
+					BringWindowToTop(UninstallHWND);
+					SetWindowPos(UninstallHWND, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE);
+					SetForegroundWindow(UninstallHWND);
 
-					// 이름이 변경되어 못찾을 경우
-					if (unintstallSub == NULL)
-					{
-						SubWindowHWND = NULL;
-						EnumWindows(WorkerProc, 0);
+					HWND TitleHard = FindWindow(NULL, L"Info");
 
-						if (SubWindowHWND == NULL)
-							break;
-						else
-							EnumChildWindows(SubWindowHWND, EnumChildProc, 0);
-					}
+					if (TitleHard != NULL)
+						EnumChildWindows(TitleHard, EnumChildProc, 0);
 					else
 					{
-						// XAMPP 의 특별한 케이스로 하드코딩
-						HWND TitleHard = FindWindow(NULL, L"Info");
-
-						if (TitleHard != NULL)
-							EnumChildWindows(TitleHard, EnumChildProc, 0);
-						else
+						if (!IsWindowVisible(UninstallHWND))
 						{
-							if (unintstallSub != GetForegroundWindow())
-							{
-								static TCHAR buffer[1024];
-								GetWindowText(GetForegroundWindow(), buffer, 1024);
+							SubWindowHWND = NULL;
+							EnumWindows(WorkerProc, 0);
+							UninstallHWND = SubWindowHWND;
 
-								CString findWindowText[] = { "제거", "언인스톨", "Uninstall", "Remove" , "Delete", "Uninstallation" };
-								CString distText = (LPCTSTR)buffer;
-
-								bool findWindow = false;
-								for (int i = 0; i < findWindowText->GetLength(); i++)
-								{
-									if (!(distText.Compare(L"") == 0) && distText.Find(findWindowText[i]) > -1)
-									{
-										findWindow = true;
-										SubWindowHWND = GetForegroundWindow();
-										break;
-									}
-								}
-								if(findWindow)
-									EnumChildWindows(SubWindowHWND, EnumChildProc, 0);
-								else break;
-							}
-							else EnumChildWindows(unintstallSub, EnumChildProc, 0);
+							if (UninstallHWND == NULL)
+								break;
 						}
+
+						// 팝업 체크
+						HWND popup_hwnd = GetForegroundWindow();
+
+						if (popup_hwnd != UninstallHWND)
+							EnumChildWindows(popup_hwnd, EnumChildProc, 0);
+						else
+							EnumChildWindows(UninstallHWND, EnumChildProc, 0);
+
 					}
 
 					Sleep(1000);
@@ -909,9 +969,8 @@ void SetBlockInternetFromRegistry()
 				// 크롬
 				MoveFile(csDefaultPath, csDefaultPath + L"2");
 			}
+			RegCloseKey(hAppKey);
 		}
-
-		RegCloseKey(hAppKey);
 	}
 	RegCloseKey(hUninstKey);
 
@@ -981,13 +1040,12 @@ void RealaseBlockInternetFromRegistry()
 				// 크롬
 				MoveFile(csDefaultPath + L"2", csDefaultPath);
 			}
+			RegCloseKey(hAppKey);
 		}
-
-		RegCloseKey(hAppKey);
 	}
 	RegCloseKey(hUninstKey);
 
-	WCHAR *EDGE_PATH = L"C:\\Windows\\SystemApps\\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\\MicrosoftEdge.exe";
+	WCHAR *EDGE_PATH = L"C:\\Windows\\SystemApps\\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\\MicrosoftEdge.exe2";
 	if (PathFileExists(EDGE_PATH))
 	{
 		WCHAR ALL_PATH[1024] = { '\0', };

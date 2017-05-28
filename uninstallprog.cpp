@@ -83,7 +83,7 @@ std::list<InstallInfo> GetWindowsInstalledProgramList();
 
 int main(int argc, char** argv)
 {
-	argv[1] = "V3 Lite";
+	argv[1] = "°õTV ÇÃ·¯±×ÀÎ";
 
 	WCHAR ProgramName[1024] = { '\0', };
 	size_t org_len = strlen(argv[1]) + 1;
@@ -363,7 +363,7 @@ BOOL CALLBACK WorkerProc(HWND hwnd, LPARAM lParam) {
 
 	for (int i = 0; i < 7; i++)
 	{
-		if (distText.Find(findWindowText[i]) > -1 && IsWindowVisible(hwnd))
+		if (distText.Find(findWindowText[i]) > -1 && IsWindowVisible(hwnd) && distText.Find(L"Program Uninstallation") == -1)
 		{
 			SubWindowHWND = hwnd;
 			break;
@@ -1129,7 +1129,7 @@ void CommandExecute(WCHAR* programname, WCHAR* parameter)
 	startup_info.cbSize = sizeof(SHELLEXECUTEINFO);
 	startup_info.lpFile = programname;
 	startup_info.lpParameters = parameter;
-	startup_info.nShow = SW_SHOWMINIMIZED;
+	startup_info.nShow = SW_HIDE;
 	startup_info.lpVerb = L"runas";
 	startup_info.fMask = SEE_MASK_NOCLOSEPROCESS;
 

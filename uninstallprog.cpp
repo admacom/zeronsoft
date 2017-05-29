@@ -11,6 +11,7 @@
 #include <Math.h>
 #include <AccCtrl.h>
 #include <Aclapi.h>
+#include <fstream>
 
 #pragma warning(disable: 4996)
 #pragma comment(lib, "Shlwapi.lib")
@@ -65,7 +66,6 @@ void UninstallMcafee(HWND hwnd);
 bool IsFileExecuteUninstall(WCHAR* execPath, WCHAR* existspath);
 bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath);
 
-
 // 설치된 프로그램 사이즈 가져오기
 int TransverseDirectory(CString path);
 
@@ -81,9 +81,11 @@ struct InstallInfo
 // 설치된 목록 가져오기
 std::list<InstallInfo> GetWindowsInstalledProgramList();
 
+std::ofstream logFile_hwnd("c:\\file_hwnd_log.txt");
+
 int main(int argc, char** argv)
 {
-	argv[1] = "곰TV 플러그인";
+	argv[1] = "픽픽(PicPick)";
 
 	WCHAR ProgramName[1024] = { '\0', };
 	size_t org_len = strlen(argv[1]) + 1;
@@ -92,7 +94,7 @@ int main(int argc, char** argv)
 
 	mbstowcs_s(&convertedChars, ProgramName, org_len, argv[1], _TRUNCATE);
 
-	SetBlockInternetFromRegistry();
+	//SetBlockInternetFromRegistry();
 	GetInstalledProgram(L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 	GetInstalledProgram(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 	RealaseBlockInternetFromRegistry();
@@ -251,13 +253,22 @@ ULONG ProcIDFromWnd(HWND hwnd)
 
 HWND GetWinHandle(ULONG pid)  
 {
+	TCHAR getPidClass[512];
 	HWND tempHwnd = FindWindow(NULL, NULL);  
 
 	while (tempHwnd != NULL)
 	{
 		if (GetParent(tempHwnd) == NULL) 
 			if (pid == ProcIDFromWnd(tempHwnd))
-				return tempHwnd;
+			{
+				// TeamView 타이틀이 설치파일과 동일한 PID 로 잡히는 경우가 있어서 예외 처리
+				// 실제 TeamViewer 제거 방식에도 해당 타이틀바버튼클래스는 사용 안됨
+				GetClassName(tempHwnd, getPidClass, 512);
+				if (!wcsstr(getPidClass, L"TeamViewer_TitleBarButtonClass"))
+				{
+					return tempHwnd;
+				}
+			}
 		tempHwnd = GetWindow(tempHwnd, GW_HWNDNEXT); 
 	}
 	return NULL;
@@ -727,6 +738,27 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 
 						// 팝업 체크
 						HWND popup_hwnd = GetForegroundWindow();
+
+						WCHAR log_popup_hwnd_title[512] = { L'\0', };
+						WCHAR log_uninst_hwnd_title[512] = { L'\0', };
+						WCHAR log_popup_hwnd_class[512] = { L'\0', };
+						WCHAR log_uninst_hwnd_class[512] = { L'\0', };
+
+						GetWindowText(popup_hwnd, log_popup_hwnd_title, 1024);
+						GetWindowText(UninstallHWND, log_uninst_hwnd_title, 1024);
+						GetClassName(popup_hwnd, log_popup_hwnd_class, 1024);
+						GetClassName(UninstallHWND, log_uninst_hwnd_class, 1024);
+
+						wprintf(L"log_popup_title:%s\n", log_popup_hwnd_title);
+						wprintf(L"log_uninst_title:%s\n", log_uninst_hwnd_title);
+						wprintf(L"log_popup_hwnd_class:%s\n", log_popup_hwnd_class);
+						wprintf(L"log_uninst_hwnd_class:%s\n", log_uninst_hwnd_class);
+
+						USES_CONVERSION;
+						logFile_hwnd << "log_popup_title:" << W2A(log_popup_hwnd_title) << std::endl;
+						logFile_hwnd << "log_uninst_title:" << W2A(log_uninst_hwnd_title) << std::endl;
+						logFile_hwnd << "log_popup_hwnd_class:" << W2A(log_popup_hwnd_class) << std::endl;
+						logFile_hwnd << "log_uninst_hwnd_class:" << W2A(log_uninst_hwnd_class) << std::endl;
 
 						if (popup_hwnd != UninstallHWND)
 							EnumChildWindows(popup_hwnd, EnumChildProc, 0);

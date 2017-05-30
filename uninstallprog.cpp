@@ -398,7 +398,7 @@ BOOL CALLBACK PopWorkerProc(HWND hwnd, LPARAM lParam) {
 	{
 		for (int i = 0; i < 7; i++)
 		{
-			if (distText.Find(findWindowText[i]) > -1)
+			if (distText.Find(findWindowText[i]) > -1 && distText.MakeLower().Find(L"program uninstallation") == -1)
 			{
 				UninstallPopupHWND = hwnd;
 				break;

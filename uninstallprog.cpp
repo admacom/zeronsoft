@@ -20,7 +20,7 @@
 // 32bit, 64bit 확인
 typedef BOOL(WINAPI *LPFN_ISWOW64PROCESS) (HANDLE, PBOOL);
 LPFN_ISWOW64PROCESS fnIsWow64Process;
-BOOL IsWow64();
+BOOL fnIsWor64();
 
 // 프로그램 검색 및 삭제
 bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName);
@@ -37,6 +37,9 @@ BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM lParam);
 
 // Main Window Get
 BOOL CALLBACK WorkerProc(HWND hwnd, LPARAM lParam);
+
+// Popup Window Get
+BOOL CALLBACK PopWorkerProc(HWND hwnd, LPARAM lParam);
 
 // 설치 종료 플래그
 bool unInstallFinished = false;
@@ -58,6 +61,7 @@ void CommandExecute(WCHAR* programname, WCHAR* parameter);
 TCHAR MainWindowText[1024];
 HWND SubWindowHWND;
 HWND UninstallHWND;
+HWND UninstallPopupHWND;
 
 // MCAFEE HARDCODING
 void UninstallMcafee(HWND hwnd);
@@ -65,6 +69,7 @@ void UninstallMcafee(HWND hwnd);
 // 설치 프로세스
 bool IsFileExecuteUninstall(WCHAR* execPath, WCHAR* existspath);
 bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath);
+
 
 // 설치된 프로그램 사이즈 가져오기
 int TransverseDirectory(CString path);
@@ -85,24 +90,19 @@ std::ofstream logFile_hwnd("c:\\file_hwnd_log.txt");
 
 int main(int argc, char** argv)
 {
-	argv[1] = "픽픽(PicPick)";
+	argv[1] = "곰TV 플러그인";
 
 	WCHAR ProgramName[1024] = { '\0', };
 	size_t org_len = strlen(argv[1]) + 1;
 	size_t convertedChars = 0; 
-	setlocale(LC_ALL, "korean");
 
+	setlocale(LC_ALL, "korean");
 	mbstowcs_s(&convertedChars, ProgramName, org_len, argv[1], _TRUNCATE);
 
-	//SetBlockInternetFromRegistry();
 	GetInstalledProgram(L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
 	GetInstalledProgram(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
-	RealaseBlockInternetFromRegistry();
-
+	
 	//GetWindowsInstalledProgramList();
-
-	system("pause");
-	getchar();
 	return 0;
 } 
 
@@ -126,7 +126,9 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 	DWORD dwInstallLocation = 0;
 	bool regOpenResult = false;
 
-	if (IsWow64())
+	//SetBlockInternetFromRegistry();
+
+	if (fnIsWor64())
 		regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, regKeyPath, 0, KEY_READ | KEY_WOW64_64KEY, &hUninstKey) != ERROR_SUCCESS;
 	else
 		regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, regKeyPath, 0, KEY_READ, &hUninstKey) != ERROR_SUCCESS;
@@ -142,7 +144,7 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 		{
 			wsprintf(sSubKey, L"%s\\%s", regKeyPath, sAppKeyName);
 
-			if (IsWow64())
+			if (fnIsWor64())
 				regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, sSubKey, 0, KEY_READ | KEY_WOW64_64KEY, &hAppKey) != ERROR_SUCCESS;
 			else
 				regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, sSubKey, 0, KEY_READ, &hAppKey) != ERROR_SUCCESS;
@@ -239,8 +241,8 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 		}
 	}
 
-	RegCloseKey(hUninstKey);
-
+	RegCloseKey(hUninstKey); 
+	RealaseBlockInternetFromRegistry();
 	return true;
 }
 
@@ -384,6 +386,34 @@ BOOL CALLBACK WorkerProc(HWND hwnd, LPARAM lParam) {
 	return TRUE;
 }
 
+BOOL CALLBACK PopWorkerProc(HWND hwnd, LPARAM lParam) {
+	static TCHAR buffer[1024];
+	GetWindowText(hwnd, buffer, 1024);
+
+	CString distText = (LPCTSTR)buffer;
+	CString sourceText = (LPCTSTR)MainWindowText;
+	CString findWindowText[] = { "제거", "언인스톨", "Uninstall", "Remove" , "Delete", "Uninstallation", "Setup" };
+
+	if (wcscmp(buffer, MainWindowText) != 0)
+	{
+		for (int i = 0; i < 7; i++)
+		{
+			if (distText.Find(findWindowText[i]) > -1)
+			{
+				UninstallPopupHWND = hwnd;
+				break;
+			}
+		}
+	}
+	else
+	{
+		if (UninstallHWND != hwnd)
+			UninstallPopupHWND = hwnd;
+	}
+
+	return TRUE;
+}
+
 BOOL CALLBACK TerminateProc(HWND hwnd, LPARAM lParam) {
 	static TCHAR buffer[1024];
 	GetWindowText(hwnd, buffer, 1024);
@@ -473,7 +503,7 @@ void ExitUninstallAfterWeb()
 	}
 }
 
-BOOL IsWow64()
+BOOL fnIsWor64()
 {
 	BOOL bIsWow64 = FALSE;
 	fnIsWow64Process = (LPFN_ISWOW64PROCESS)GetProcAddress(
@@ -610,6 +640,10 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 
 	proc_ret = CreateProcess(NULL, clone_path, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
 
+	/* 설치 핸들러 초기화 */
+	UninstallHWND = NULL;
+	UninstallPopupHWND = NULL;
+
 	if (proc_ret)
 	{
 		// PID 정보로 찾음
@@ -737,16 +771,17 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 						}
 
 						// 팝업 체크
-						HWND popup_hwnd = GetForegroundWindow();
-
+						HWND fore_popup_hwnd = GetForegroundWindow();
+						
+						EnumWindows(PopWorkerProc, 0);
 						WCHAR log_popup_hwnd_title[512] = { L'\0', };
 						WCHAR log_uninst_hwnd_title[512] = { L'\0', };
 						WCHAR log_popup_hwnd_class[512] = { L'\0', };
 						WCHAR log_uninst_hwnd_class[512] = { L'\0', };
 
-						GetWindowText(popup_hwnd, log_popup_hwnd_title, 1024);
+						GetWindowText(fore_popup_hwnd, log_popup_hwnd_title, 1024);
 						GetWindowText(UninstallHWND, log_uninst_hwnd_title, 1024);
-						GetClassName(popup_hwnd, log_popup_hwnd_class, 1024);
+						GetClassName(fore_popup_hwnd, log_popup_hwnd_class, 1024);
 						GetClassName(UninstallHWND, log_uninst_hwnd_class, 1024);
 
 						wprintf(L"log_popup_title:%s\n", log_popup_hwnd_title);
@@ -760,8 +795,14 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 						logFile_hwnd << "log_popup_hwnd_class:" << W2A(log_popup_hwnd_class) << std::endl;
 						logFile_hwnd << "log_uninst_hwnd_class:" << W2A(log_uninst_hwnd_class) << std::endl;
 
-						if (popup_hwnd != UninstallHWND)
-							EnumChildWindows(popup_hwnd, EnumChildProc, 0);
+						if (fore_popup_hwnd != UninstallHWND)
+							EnumChildWindows(fore_popup_hwnd, EnumChildProc, 0);
+						
+						if (UninstallPopupHWND != NULL)
+						{
+							EnumChildWindows(UninstallPopupHWND, EnumChildProc, 0);
+							UninstallPopupHWND = NULL;
+						}
 						else
 							EnumChildWindows(UninstallHWND, EnumChildProc, 0);
 
@@ -809,7 +850,7 @@ std::list<InstallInfo> GetWindowsInstalledProgramList()
 		DWORD dwInstallLocationBufSize = 0;
 		bool regOpenResult = false;
 
-		if (IsWow64())
+		if (fnIsWor64())
 			regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, lstregKeyPath[i], 0, KEY_READ | KEY_WOW64_64KEY, &hUninstKey) != ERROR_SUCCESS;
 		else
 			regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, lstregKeyPath[i], 0, KEY_READ, &hUninstKey) != ERROR_SUCCESS;
@@ -828,7 +869,7 @@ std::list<InstallInfo> GetWindowsInstalledProgramList()
 			{
 				wsprintf(sSubKey, L"%s\\%s", lstregKeyPath[i], sAppKeyName);
 
-				if (IsWow64())
+				if (fnIsWor64())
 					regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, sSubKey, 0, KEY_READ | KEY_WOW64_64KEY, &hAppKey) != ERROR_SUCCESS;
 				else
 					regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, sSubKey, 0, KEY_READ, &hAppKey) != ERROR_SUCCESS;

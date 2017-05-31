@@ -88,21 +88,19 @@ std::list<InstallInfo> GetWindowsInstalledProgramList();
 
 std::ofstream logFile_hwnd("c:\\file_hwnd_log.txt");
 
-int main(int argc, char** argv)
+// Console 윈도우 메세지 받기
+void RegisterMessageReceiverWindow();
+LRESULT CALLBACK WndProc(HWND hWnd, UINT nMsg, WPARAM wParam, LPARAM lParam);
+
+typedef struct DataInfo {
+	WCHAR sData[512] = L"쇼핑스트리트, 11번가 도구모음 아이콘";
+}DINFO, *PINFO;
+
+int main()
 {
-	argv[1] = "곰TV 플러그인";
-
-	WCHAR ProgramName[1024] = { '\0', };
-	size_t org_len = strlen(argv[1]) + 1;
-	size_t convertedChars = 0; 
-
-	setlocale(LC_ALL, "korean");
-	mbstowcs_s(&convertedChars, ProgramName, org_len, argv[1], _TRUNCATE);
-
-	GetInstalledProgram(L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
-	GetInstalledProgram(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", ProgramName);
-	
+	RegisterMessageReceiverWindow();
 	//GetWindowsInstalledProgramList();
+	
 	return 0;
 } 
 
@@ -126,7 +124,7 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 	DWORD dwInstallLocation = 0;
 	bool regOpenResult = false;
 
-	//SetBlockInternetFromRegistry();
+	SetBlockInternetFromRegistry();
 
 	if (fnIsWor64())
 		regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, regKeyPath, 0, KEY_READ | KEY_WOW64_64KEY, &hUninstKey) != ERROR_SUCCESS;
@@ -266,7 +264,7 @@ HWND GetWinHandle(ULONG pid)
 				// TeamView 타이틀이 설치파일과 동일한 PID 로 잡히는 경우가 있어서 예외 처리
 				// 실제 TeamViewer 제거 방식에도 해당 타이틀바버튼클래스는 사용 안됨
 				GetClassName(tempHwnd, getPidClass, 512);
-				if (!wcsstr(getPidClass, L"TeamViewer_TitleBarButtonClass"))
+				if (!wcsstr(getPidClass, L"TeamViewer_TitleBarButtonClass") && IsWindowVisible(tempHwnd))
 				{
 					return tempHwnd;
 				}
@@ -280,7 +278,7 @@ BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM lParam) {
 
 	TCHAR lstFindText[26][15] = { _T("Next"), _T("다음"), _T("닫음"), _T("Uninstall"), _T("Remove"), _T("예"), _T("예(Y)") , _T("제거"), _T("마침"), _T("Yes"), _T("Close"), _T("Finish"), _T("세이프"), _T("확인"), _T("예(&Y)"), _T("완료"), _T("무시(&I)"), _T("OK")
 								, _T("&Close"), _T("&Uninstall"), _T("Ok"), _T("다시 시도(&R)"), _T("&Next >"), _T("Yes to All"), _T("마침(&F)"), _T("예(&Y)") };
-	TCHAR lstFinishText[5][10] = { _T("Finish"), _T("닫기"), _T("제거되었습니다"), _T("마침"), _T("완료") };
+	TCHAR lstFinishText[6][10] = { _T("Finish"), _T("닫기"), _T("제거되었습니다"), _T("제거하었습니다"), _T("마침"), _T("완료") };
 	TCHAR lstRebootText[3][10] = { _T("Reboot"), _T("Restart"), _T("시작") };
 	TCHAR lstRebootFindText[5][10] = { _T("No"), _T("Later"), _T("later"), _T("나중") , _T("다음") };
 	TCHAR ctrlText[512];
@@ -436,6 +434,10 @@ BOOL CALLBACK TerminateProc(HWND hwnd, LPARAM lParam) {
 
 void ExitRelationProcess(TCHAR* folderPath)
 {
+	// System32 는 제외
+	if (wcsstr(folderPath, L"system32"))
+		return;
+
 	PathAddBackslash(folderPath);
 	PathAddExtension(folderPath, L"*.exe");
 
@@ -640,12 +642,10 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 
 	proc_ret = CreateProcess(NULL, clone_path, NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &proc_info);
 
-	/* 설치 핸들러 초기화 */
-	UninstallHWND = NULL;
-	UninstallPopupHWND = NULL;
-
 	if (proc_ret)
 	{
+		BOOL usingProcess = false;
+
 		// PID 정보로 찾음
 		WaitForInputIdle(proc_info.hProcess, INFINITE);
 		std::thread bat_block_thread(&ExitUninstallAfterWeb);
@@ -668,6 +668,13 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 		// 못찾으면 프로세스로 찾음
 		if (UninstallHWND == NULL)
 		{
+			PathStripPath(clone_path);
+
+			if (clone_path[wcslen(clone_path) - 1] == '\"')
+			{
+				clone_path[wcslen(clone_path) - 1] = '\0';
+			}
+
 			CString lst_proc_name[] = { "u_.exe", "_A.exe" };
 			HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
 
@@ -676,20 +683,32 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 
 			Process32First(hSnapshot, &ProcessEntry32);
 
+			CString execute_file_name = (LPCTSTR)clone_path;
 			while (Process32Next(hSnapshot, &ProcessEntry32) == TRUE)
 			{
-				bool setHWND = false;
 				CString curr_proc_name = (LPCTSTR)ProcessEntry32.szExeFile;
-				for (int i = 0; i < 2; i++)
+
+				// 자기자신 프로세스 체크
+				if (execute_file_name.Find(curr_proc_name) > -1)
 				{
-					if (curr_proc_name.Find(lst_proc_name[i]) > -1)
+					usingProcess = true;
+					UninstallHWND = GetWinHandle(ProcessEntry32.th32ProcessID);
+				}
+
+				// 할당(지정) 된 프로세스 체크
+				if (!usingProcess)
+				{
+					for (int i = 0; i < 2; i++)
 					{
-						setHWND = true;
-						UninstallHWND = GetWinHandle(ProcessEntry32.th32ProcessID);
-						break;
+						if (curr_proc_name.Find(lst_proc_name[i]) > -1)
+						{
+							usingProcess = true;
+							UninstallHWND = GetWinHandle(ProcessEntry32.th32ProcessID);
+							break;
+						}
 					}
 				}
-				if (setHWND)
+				if (usingProcess)
 					break;
 			}
 		}
@@ -748,7 +767,7 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 
 			while (true)
 			{
-				if (!unInstallFinished || IsWindow(UninstallHWND))
+				if (!unInstallFinished || (IsWindow(UninstallHWND) && IsWindowVisible(UninstallHWND)) || (IsWindow(UninstallPopupHWND) && IsWindowVisible(UninstallPopupHWND)))
 				{
 					BringWindowToTop(UninstallHWND);
 					SetWindowPos(UninstallHWND, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE);
@@ -760,57 +779,69 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 						EnumChildWindows(TitleHard, EnumChildProc, 0);
 					else
 					{
-						if (!IsWindowVisible(UninstallHWND))
-						{
-							SubWindowHWND = NULL;
-							EnumWindows(WorkerProc, 0);
-							UninstallHWND = SubWindowHWND;
-
-							if (UninstallHWND == NULL)
-								break;
-						}
-
 						// 팝업 체크
 						HWND fore_popup_hwnd = GetForegroundWindow();
-						
+
+						UninstallPopupHWND = NULL;
 						EnumWindows(PopWorkerProc, 0);
-						WCHAR log_popup_hwnd_title[512] = { L'\0', };
-						WCHAR log_uninst_hwnd_title[512] = { L'\0', };
-						WCHAR log_popup_hwnd_class[512] = { L'\0', };
-						WCHAR log_uninst_hwnd_class[512] = { L'\0', };
-
-						GetWindowText(fore_popup_hwnd, log_popup_hwnd_title, 1024);
-						GetWindowText(UninstallHWND, log_uninst_hwnd_title, 1024);
-						GetClassName(fore_popup_hwnd, log_popup_hwnd_class, 1024);
-						GetClassName(UninstallHWND, log_uninst_hwnd_class, 1024);
-
-						wprintf(L"log_popup_title:%s\n", log_popup_hwnd_title);
-						wprintf(L"log_uninst_title:%s\n", log_uninst_hwnd_title);
-						wprintf(L"log_popup_hwnd_class:%s\n", log_popup_hwnd_class);
-						wprintf(L"log_uninst_hwnd_class:%s\n", log_uninst_hwnd_class);
-
-						USES_CONVERSION;
-						logFile_hwnd << "log_popup_title:" << W2A(log_popup_hwnd_title) << std::endl;
-						logFile_hwnd << "log_uninst_title:" << W2A(log_uninst_hwnd_title) << std::endl;
-						logFile_hwnd << "log_popup_hwnd_class:" << W2A(log_popup_hwnd_class) << std::endl;
-						logFile_hwnd << "log_uninst_hwnd_class:" << W2A(log_uninst_hwnd_class) << std::endl;
 
 						if (fore_popup_hwnd != UninstallHWND)
 							EnumChildWindows(fore_popup_hwnd, EnumChildProc, 0);
 						
 						if (UninstallPopupHWND != NULL)
-						{
 							EnumChildWindows(UninstallPopupHWND, EnumChildProc, 0);
-							UninstallPopupHWND = NULL;
-						}
 						else
 							EnumChildWindows(UninstallHWND, EnumChildProc, 0);
-
 					}
-
 					Sleep(1000);
 				}
-				else break;
+				else
+				{
+					// 프로세스로 체크한 경우 해당 프로세스가 살아있는지 핸들뿐만아니라 프로세스명으로 한번 더 체크
+					if (usingProcess)
+					{
+						usingProcess = false;
+
+						CString lst_proc_name[] = { "u_.exe", "_A.exe" };
+						HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+
+						PROCESSENTRY32 ProcessEntry32;
+						ProcessEntry32.dwSize = sizeof(PROCESSENTRY32);
+
+						Process32First(hSnapshot, &ProcessEntry32);
+
+						CString execute_file_name = (LPCTSTR)clone_path;
+						while (Process32Next(hSnapshot, &ProcessEntry32) == TRUE)
+						{
+							CString curr_proc_name = (LPCTSTR)ProcessEntry32.szExeFile;
+
+							// 자기자신 프로세스 체크
+							if (execute_file_name.Find(curr_proc_name) > -1)
+							{
+								usingProcess = true;
+								UninstallHWND = GetWinHandle(ProcessEntry32.th32ProcessID);
+							}
+
+							// 할당(지정) 된 프로세스 체크
+							if (!usingProcess)
+							{
+								for (int i = 0; i < 2; i++)
+								{
+									if (curr_proc_name.Find(lst_proc_name[i]) > -1)
+									{
+										usingProcess = true;
+										UninstallHWND = GetWinHandle(ProcessEntry32.th32ProcessID);
+										break;
+									}
+								}
+							}
+							if (usingProcess)
+								break;
+						}
+					}
+					else
+						break;
+				}
 			}
 		}
 		// 1.5초간 인터넷 실행 명령어 체크
@@ -818,6 +849,10 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 
 		usingThread = false;
 		bat_block_thread.join();
+
+		/* 설치 핸들러 초기화 */
+		UninstallHWND = NULL;
+		UninstallPopupHWND = NULL;
 
 		if (!PathFileExists(existspath))
 			return true;
@@ -1208,4 +1243,51 @@ void CommandExecute(WCHAR* programname, WCHAR* parameter)
 
 	int result2 = ShellExecuteEx(&startup_info);
 	Wow64RevertWow64FsRedirection(prevContext);
+}
+
+void RegisterMessageReceiverWindow()
+{
+	WNDCLASSEX wc;
+	wc.cbSize = sizeof(wc);
+	wc.lpfnWndProc = WndProc;
+	wc.style = CS_HREDRAW | CS_VREDRAW;
+	wc.cbWndExtra = 0;
+	wc.cbClsExtra = 0;
+	wc.hInstance = ::GetModuleHandle(NULL);//Get this from DLLMain 
+	wc.hbrBackground = (HBRUSH)GetStockObject(NULL_BRUSH);
+	wc.lpszMenuName = NULL;
+	wc.lpszClassName = _T("MSGWND");
+	wc.hIcon = NULL;
+	wc.hIconSm = NULL;
+	wc.hCursor = NULL;
+	ATOM atom = RegisterClassEx(&wc);
+
+	CreateWindowEx(NULL, _T("MSGWND"), NULL, NULL, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, HWND_MESSAGE, NULL, GetModuleHandle(NULL), NULL);
+
+	MSG msg;
+	while (GetMessage(&msg, NULL, 0, 0))
+	{
+			TranslateMessage(&msg);
+
+			DispatchMessage(&msg);
+	}
+
+}
+
+LRESULT CALLBACK WndProc(HWND hWnd, UINT nMsg, WPARAM wParam, LPARAM lParam)
+{
+	switch (nMsg)
+	{
+	case WM_COPYDATA:
+		COPYDATASTRUCT *pCopyData;
+		pCopyData = (COPYDATASTRUCT*)lParam;
+
+		PINFO cpInfo = (PINFO)pCopyData->lpData;
+
+		GetInstalledProgram(L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall", cpInfo->sData);
+		GetInstalledProgram(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", cpInfo->sData);
+		break;
+	}
+
+	return DefWindowProc(hWnd, nMsg, wParam, lParam);
 }

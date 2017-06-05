@@ -398,8 +398,11 @@ BOOL CALLBACK PopWorkerProc(HWND hwnd, LPARAM lParam) {
 		{
 			if (distText.Find(findWindowText[i]) > -1 && distText.MakeLower().Find(L"program uninstallation") == -1)
 			{
-				UninstallPopupHWND = hwnd;
-				break;
+				if (UninstallHWND != hwnd)
+				{
+					UninstallPopupHWND = hwnd;
+					break;
+				}
 			}
 		}
 	}
@@ -644,8 +647,7 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 
 	if (proc_ret)
 	{
-		BOOL usingProcess = false;
-
+		DWORD _global_proc_id = 0;
 		// PID 정보로 찾음
 		WaitForInputIdle(proc_info.hProcess, INFINITE);
 		std::thread bat_block_thread(&ExitUninstallAfterWeb);
@@ -656,6 +658,7 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 
 		while (UninstallHWND == NULL)
 		{
+			_global_proc_id = proc_info.dwProcessId;
 			UninstallHWND = GetWinHandle(proc_info.dwProcessId);
 			Sleep(200);
 
@@ -684,6 +687,7 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 			Process32First(hSnapshot, &ProcessEntry32);
 
 			CString execute_file_name = (LPCTSTR)clone_path;
+			BOOL usingProcess = false;
 			while (Process32Next(hSnapshot, &ProcessEntry32) == TRUE)
 			{
 				CString curr_proc_name = (LPCTSTR)ProcessEntry32.szExeFile;
@@ -692,6 +696,7 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 				if (execute_file_name.Find(curr_proc_name) > -1)
 				{
 					usingProcess = true;
+					_global_proc_id = ProcessEntry32.th32ProcessID;
 					UninstallHWND = GetWinHandle(ProcessEntry32.th32ProcessID);
 				}
 
@@ -703,6 +708,7 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 						if (curr_proc_name.Find(lst_proc_name[i]) > -1)
 						{
 							usingProcess = true;
+							_global_proc_id = ProcessEntry32.th32ProcessID;
 							UninstallHWND = GetWinHandle(ProcessEntry32.th32ProcessID);
 							break;
 						}
@@ -797,49 +803,11 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 				}
 				else
 				{
-					// 프로세스로 체크한 경우 해당 프로세스가 살아있는지 핸들뿐만아니라 프로세스명으로 한번 더 체크
-					if (usingProcess)
-					{
-						usingProcess = false;
-
-						CString lst_proc_name[] = { "u_.exe", "_A.exe" };
-						HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-
-						PROCESSENTRY32 ProcessEntry32;
-						ProcessEntry32.dwSize = sizeof(PROCESSENTRY32);
-
-						Process32First(hSnapshot, &ProcessEntry32);
-
-						CString execute_file_name = (LPCTSTR)clone_path;
-						while (Process32Next(hSnapshot, &ProcessEntry32) == TRUE)
-						{
-							CString curr_proc_name = (LPCTSTR)ProcessEntry32.szExeFile;
-
-							// 자기자신 프로세스 체크
-							if (execute_file_name.Find(curr_proc_name) > -1)
-							{
-								usingProcess = true;
-								UninstallHWND = GetWinHandle(ProcessEntry32.th32ProcessID);
-							}
-
-							// 할당(지정) 된 프로세스 체크
-							if (!usingProcess)
-							{
-								for (int i = 0; i < 2; i++)
-								{
-									if (curr_proc_name.Find(lst_proc_name[i]) > -1)
-									{
-										usingProcess = true;
-										UninstallHWND = GetWinHandle(ProcessEntry32.th32ProcessID);
-										break;
-									}
-								}
-							}
-							if (usingProcess)
-								break;
-						}
-					}
-					else
+					// 프로세스로 체크한 경우 해당 프로세스가 살아있는지 핸들뿐만아니라 프로세스 ID로 한번 더 체크
+					if (_global_proc_id > 0)
+						UninstallHWND = GetWinHandle(_global_proc_id);
+					
+					if (UninstallHWND == NULL)
 						break;
 				}
 			}
@@ -1264,11 +1232,13 @@ void RegisterMessageReceiverWindow()
 
 	CreateWindowEx(NULL, _T("MSGWND"), NULL, NULL, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, HWND_MESSAGE, NULL, GetModuleHandle(NULL), NULL);
 
-	MSG msg;
+	MSG msg;                      /* 프로그램에 전송된 메시지가 저장 */
 	while (GetMessage(&msg, NULL, 0, 0))
 	{
+			/* 가상의 키 메시지를 문자 메시지로 해석 */
 			TranslateMessage(&msg);
 
+			/* 메시지를 WndProc으로 전송 */
 			DispatchMessage(&msg);
 	}
 
@@ -1280,7 +1250,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT nMsg, WPARAM wParam, LPARAM lParam)
 	{
 	case WM_COPYDATA:
 		COPYDATASTRUCT *pCopyData;
-		pCopyData = (COPYDATASTRUCT*)lParam;
+		pCopyData = (COPYDATASTRUCT*)lParam;   // LParam(copydata)를 가르킨다. 
 
 		PINFO cpInfo = (PINFO)pCopyData->lpData;
 

@@ -1,3 +1,8 @@
+/*
+LAST UPDATED: 2017-06-08 17:45
+AUTHOR: 한우희
+*/
+
 #include <Windows.h>
 #include <stdio.h>
 #include <string>
@@ -258,17 +263,17 @@ HWND GetWinHandle(ULONG pid)
 
 	while (tempHwnd != NULL)
 	{
-		if (GetParent(tempHwnd) == NULL) 
-			if (pid == ProcIDFromWnd(tempHwnd))
+		if (pid == ProcIDFromWnd(tempHwnd))
+		{
+			// TeamView 타이틀이 설치파일과 동일한 PID 로 잡히는 경우가 있어서 예외 처리
+			// 실제 TeamViewer 제거 방식에도 해당 타이틀바버튼클래스는 사용 안됨
+			GetClassName(tempHwnd, getPidClass, 512);
+			if (!wcsstr(getPidClass, L"TeamViewer_TitleBarButtonClass") && IsWindowVisible(tempHwnd))
 			{
-				// TeamView 타이틀이 설치파일과 동일한 PID 로 잡히는 경우가 있어서 예외 처리
-				// 실제 TeamViewer 제거 방식에도 해당 타이틀바버튼클래스는 사용 안됨
-				GetClassName(tempHwnd, getPidClass, 512);
-				if (!wcsstr(getPidClass, L"TeamViewer_TitleBarButtonClass") && IsWindowVisible(tempHwnd))
-				{
-					return tempHwnd;
-				}
+				return tempHwnd;
 			}
+		}
+
 		tempHwnd = GetWindow(tempHwnd, GW_HWNDNEXT); 
 	}
 	return NULL;
@@ -276,8 +281,8 @@ HWND GetWinHandle(ULONG pid)
 
 BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM lParam) {
 
-	TCHAR lstFindText[26][15] = { _T("Next"), _T("다음"), _T("닫음"), _T("Uninstall"), _T("Remove"), _T("예"), _T("예(Y)") , _T("제거"), _T("마침"), _T("Yes"), _T("Close"), _T("Finish"), _T("세이프"), _T("확인"), _T("예(&Y)"), _T("완료"), _T("무시(&I)"), _T("OK")
-								, _T("&Close"), _T("&Uninstall"), _T("Ok"), _T("다시 시도(&R)"), _T("&Next >"), _T("Yes to All"), _T("마침(&F)"), _T("예(&Y)") };
+	TCHAR lstFindText[27][15] = { _T("Next"), _T("다음"), _T("닫음"), _T("Uninstall"), _T("Remove"), _T("예"), _T("예(Y)") , _T("제거"), _T("마침"), _T("Yes"), _T("Close"), _T("Finish"), _T("세이프"), _T("확인"), _T("예(&Y)"), _T("완료"), _T("무시(&I)"), _T("OK")
+								, _T("&Close"), _T("&Uninstall"), _T("Ok"), _T("다시 시도(&R)"), _T("&Next >"), _T("Yes to All"), _T("마침(&F)"), _T("예(&Y)"), _T("삭제") };
 	TCHAR lstFinishText[6][10] = { _T("Finish"), _T("닫기"), _T("제거되었습니다"), _T("제거하었습니다"), _T("마침"), _T("완료") };
 	TCHAR lstRebootText[3][10] = { _T("Reboot"), _T("Restart"), _T("시작") };
 	TCHAR lstRebootFindText[5][10] = { _T("No"), _T("Later"), _T("later"), _T("나중") , _T("다음") };
@@ -599,12 +604,17 @@ bool IsFileExecuteUninstall(WCHAR* execPath, WCHAR* existspath)
 	bat_block_thread.join();
 
 	WCHAR real_path[1024] = L"";
-	for (int i = wcslen(existspath); i > 0; i--)
+
+	// 확장자가 .exe이 아닌 경우 파라미터가 있다고 판단
+	if (existspath[wcslen(existspath) - 4] != '.')
 	{
-		if ((char)(*(existspath + i)) == ' ')
+		for (int i = wcslen(existspath); i > 0; i--)
 		{
-			wcsncpy(real_path, existspath, i);
-			break;
+			if ((char)(*(existspath + i)) == ' ')
+			{
+				wcsncpy(real_path, existspath, i);
+				break;
+			}
 		}
 	}
 
@@ -678,7 +688,7 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 				clone_path[wcslen(clone_path) - 1] = '\0';
 			}
 
-			CString lst_proc_name[] = { "u_.exe", "_A.exe" };
+			CString lst_proc_name[] = { "u_.exe", "_A.exe", "Un00" };
 			HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
 
 			PROCESSENTRY32 ProcessEntry32;
@@ -703,7 +713,7 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 				// 할당(지정) 된 프로세스 체크
 				if (!usingProcess)
 				{
-					for (int i = 0; i < 2; i++)
+					for (int i = 0; i < 3; i++)
 					{
 						if (curr_proc_name.Find(lst_proc_name[i]) > -1)
 						{
@@ -796,7 +806,8 @@ bool IsNormalUninstall(WCHAR* execPath, WCHAR* existspath)
 						
 						if (UninstallPopupHWND != NULL)
 							EnumChildWindows(UninstallPopupHWND, EnumChildProc, 0);
-						else
+
+						if (UninstallHWND != NULL)
 							EnumChildWindows(UninstallHWND, EnumChildProc, 0);
 					}
 					Sleep(1000);

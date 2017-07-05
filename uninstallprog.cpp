@@ -1,5 +1,5 @@
 /*
-LAST UPDATED: 2017-06-12 13:55
+LAST UPDATED: 2017-07-06 08:51
 AUTHOR: ÇÑ¿ìÈñ
 */
 
@@ -130,7 +130,7 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 	DWORD dwInstallLocation = 0;
 	bool regOpenResult = false;
 
-	SetBlockInternetFromRegistry();
+	//SetBlockInternetFromRegistry();
 
 	if (fnIsWor64())
 		regOpenResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, regKeyPath, 0, KEY_READ | KEY_WOW64_64KEY, &hUninstKey) != ERROR_SUCCESS;
@@ -246,7 +246,7 @@ bool GetInstalledProgram(WCHAR *regKeyPath, WCHAR* ProgramName)
 	}
 
 	RegCloseKey(hUninstKey);
-	RealaseBlockInternetFromRegistry();
+	//RealaseBlockInternetFromRegistry();
 	return true;
 }
 
